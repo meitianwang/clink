@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import subprocess
 import sys
-
-import aiohttp
-import asyncio
 
 from config import CONFIG_FILE, load_config, save_config
 
@@ -413,17 +411,27 @@ def collect_config(channel: str) -> dict:
         print(t("wecom_guide"))
         corp_id = input(t("wecom_corp_id")).strip()
         corp_secret = input(t("wecom_secret")).strip()
-        agent_id = input(t("wecom_agent_id")).strip()
+        while True:
+            agent_id = input(t("wecom_agent_id")).strip()
+            try:
+                agent_id_int = int(agent_id)
+                break
+            except ValueError:
+                print("  " + ("Please enter a number." if _lang == "en" else "请输入数字。"))
         token = input(t("wecom_token")).strip()
         aes_key = input(t("wecom_aes_key")).strip()
-        port = input(t("wecom_port")).strip() or "8080"
+        port_str = input(t("wecom_port")).strip() or "8080"
+        try:
+            port_int = int(port_str)
+        except ValueError:
+            port_int = 8080
         return {
             "corp_id": corp_id,
             "corp_secret": corp_secret,
-            "agent_id": int(agent_id),
+            "agent_id": agent_id_int,
             "token": token,
             "encoding_aes_key": aes_key,
-            "port": int(port),
+            "port": port_int,
         }
 
     return {}
@@ -490,6 +498,8 @@ def verify_connection(channel: str, channel_cfg: dict) -> bool:
 
 async def _test_wecom_token(corp_id: str, corp_secret: str) -> bool:
     """Try to get a WeCom access token to verify credentials."""
+    import aiohttp
+
     url = "https://qyapi.weixin.qq.com/cgi-bin/gettoken"
     params = {"corpid": corp_id, "corpsecret": corp_secret}
     async with aiohttp.ClientSession() as session:

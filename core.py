@@ -76,11 +76,14 @@ class ClaudeChat:
                 for _, future in batch[:-1]:
                     future.set_result(None)
 
-                # Process the merged message
-                reply = await self._do_chat(merged)
-
-                # Last caller gets the actual reply
-                batch[-1][1].set_result(reply)
+                # Process the merged message; ensure last caller's future
+                # is always resolved even if _do_chat raises.
+                try:
+                    reply = await self._do_chat(merged)
+                    batch[-1][1].set_result(reply)
+                except Exception:
+                    batch[-1][1].set_result(None)
+                    raise
 
             return reply
         except Exception:
@@ -113,7 +116,12 @@ class ChatSessionManager:
       - Group: group_openid (per-group shared session)
       - WeCom: user_id
       - Terminal: "terminal" (single session)
+
+    Uses LRU eviction: when the number of sessions exceeds max_sessions,
+    the least-recently-used idle session is closed to free resources.
     """
+
+    MAX_SESSIONS = 20
 
     def __init__(self) -> None:
         self._sessions: dict[str, ClaudeChat] = {}
@@ -126,15 +134,32 @@ class ChatSessionManager:
             permission_mode="bypassPermissions",
         )
 
+    async def _evict_if_needed(self) -> None:
+        """Close the oldest idle session if at capacity."""
+        if len(self._sessions) < self.MAX_SESSIONS:
+            return
+        # Find the oldest idle session (not busy) to evict
+        for key in list(self._sessions):
+            session = self._sessions[key]
+            if not session._busy:
+                await session.close()
+                del self._sessions[key]
+                print(f"[Session] Evicted (LRU): {key}")
+                return
+
     def _get_session(self, session_key: str) -> ClaudeChat:
         """Get or create a ClaudeChat instance for the given session key."""
-        if session_key not in self._sessions:
+        if session_key in self._sessions:
+            # Move to end (most recently used)
+            self._sessions[session_key] = self._sessions.pop(session_key)
+        else:
             self._sessions[session_key] = ClaudeChat(self._options)
-            print(f"[Session] New session: {session_key}")
+            print(f"[Session] New session: {session_key} (total: {len(self._sessions)})")
         return self._sessions[session_key]
 
     async def chat(self, session_key: str, prompt: str) -> str | None:
         """Route a message to the correct session."""
+        await self._evict_if_needed()
         session = self._get_session(session_key)
         return await session.chat(prompt)
 

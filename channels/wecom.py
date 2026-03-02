@@ -26,6 +26,7 @@ class WeComChannel(Channel):
         self._cfg = WeComConfig.from_config()
         self._aes_key = base64.b64decode(self._cfg.encoding_aes_key + "=")
         self._handler: Handler | None = None
+        self._bg_tasks: set[asyncio.Task] = set()
         # access_token cache
         self._token: str = ""
         self._token_expires_at: float = 0
@@ -97,7 +98,9 @@ class WeComChannel(Channel):
             return web.Response(text="ok")
 
         # Process in background so we respond to WeCom quickly
-        asyncio.create_task(self._handle_and_reply(from_user, content))
+        task = asyncio.create_task(self._handle_and_reply(from_user, content))
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
         return web.Response(text="ok")
 
     async def _handle_and_reply(self, user_id: str, content: str) -> None:
