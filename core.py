@@ -73,7 +73,10 @@ class ClaudeChat:
                 self._pending.clear()
 
                 prompts = [p for p, _ in batch]
-                merged = "\n".join(prompts)
+                merged = (
+                    "[以下是你处理上一条消息期间用户追加发送的消息]\n"
+                    + "\n".join(prompts)
+                )
                 print(f"[Collect] Merging {len(batch)} queued message(s): {merged[:120]}")
 
                 # Earlier callers: their messages are merged, no separate reply
