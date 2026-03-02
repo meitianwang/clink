@@ -20,12 +20,7 @@ class QQChannel(Channel):
     async def start(self, handler: Handler) -> None:
         print("Clink QQ Bot channel starting...")
 
-        # Build a botpy.Client subclass that captures our handler
         client = _make_client(handler)
-        intents = botpy.Intents(direct_message=True)
-        client.set_intents(intents)
-
-        # client.start() is the coroutine version of client.run()
         await client.start(appid=self._cfg.appid, secret=self._cfg.secret)
 
 
