@@ -17,19 +17,12 @@ class ClaudeChat:
     once the current turn finishes.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, options: ClaudeAgentOptions) -> None:
         self._client: ClaudeSDKClient | None = None
         self._exit_stack: AsyncExitStack | None = None
         self._busy = False
         self._pending: list[tuple[str, asyncio.Future[str | None]]] = []
-
-        cfg = load_config()
-        persona = cfg.get("persona")
-
-        self._options = ClaudeAgentOptions(
-            system_prompt=persona if persona else "",
-            permission_mode="bypassPermissions",
-        )
+        self._options = options
 
     async def _ensure_client(self) -> ClaudeSDKClient:
         if self._client is None:
@@ -110,3 +103,50 @@ class ClaudeChat:
 
     async def close(self) -> None:
         await self.reset()
+
+
+class ChatSessionManager:
+    """Manages per-session ClaudeChat instances.
+
+    Session key examples:
+      - C2C:   user_openid  (per-user session)
+      - Group: group_openid (per-group shared session)
+      - WeCom: user_id
+      - Terminal: "terminal" (single session)
+    """
+
+    def __init__(self) -> None:
+        self._sessions: dict[str, ClaudeChat] = {}
+
+        cfg = load_config()
+        persona = cfg.get("persona")
+
+        self._options = ClaudeAgentOptions(
+            system_prompt=persona if persona else "",
+            permission_mode="bypassPermissions",
+        )
+
+    def _get_session(self, session_key: str) -> ClaudeChat:
+        """Get or create a ClaudeChat instance for the given session key."""
+        if session_key not in self._sessions:
+            self._sessions[session_key] = ClaudeChat(self._options)
+            print(f"[Session] New session: {session_key}")
+        return self._sessions[session_key]
+
+    async def chat(self, session_key: str, prompt: str) -> str | None:
+        """Route a message to the correct session."""
+        session = self._get_session(session_key)
+        return await session.chat(prompt)
+
+    async def reset(self, session_key: str) -> None:
+        """Reset a specific session."""
+        if session_key in self._sessions:
+            await self._sessions[session_key].reset()
+            del self._sessions[session_key]
+            print(f"[Session] Reset: {session_key}")
+
+    async def close(self) -> None:
+        """Close all sessions."""
+        for session in self._sessions.values():
+            await session.close()
+        self._sessions.clear()

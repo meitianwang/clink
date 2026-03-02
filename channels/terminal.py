@@ -23,7 +23,7 @@ class TerminalChannel(Channel):
                     continue
 
                 try:
-                    reply = await handler(text)
+                    reply = await handler("terminal", text)
                 except Exception as exc:
                     print(f"\n[Error] {exc}\n")
                     continue

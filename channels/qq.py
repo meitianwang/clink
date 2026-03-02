@@ -35,12 +35,13 @@ def _make_client(handler: Handler) -> botpy.Client:
         async def on_c2c_message_create(self, message: C2CMessage):
             """收到 QQ 私聊消息。"""
             content = (message.content or "").strip()
-            print(f"[C2C] Received: {content!r}")
+            session_key = f"c2c:{message.author.user_openid}"
+            print(f"[C2C] Received ({session_key}): {content!r}")
             if not content:
                 return
 
             try:
-                reply = await handler(content)
+                reply = await handler(session_key, content)
             except Exception as exc:
                 print(f"[C2C] Handler error: {exc}")
                 reply = f"[Error] {exc}"
@@ -60,12 +61,13 @@ def _make_client(handler: Handler) -> botpy.Client:
         async def on_group_at_message_create(self, message: GroupMessage):
             """收到 QQ 群 @Bot 消息。"""
             content = (message.content or "").strip()
-            print(f"[Group] Received: {content!r}")
+            session_key = f"group:{message.group_openid}"
+            print(f"[Group] Received ({session_key}): {content!r}")
             if not content:
                 return
 
             try:
-                reply = await handler(content)
+                reply = await handler(session_key, content)
             except Exception as exc:
                 print(f"[Group] Handler error: {exc}")
                 reply = f"[Error] {exc}"

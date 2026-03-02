@@ -13,7 +13,7 @@ from channels.terminal import TerminalChannel
 from channels.wecom import WeComChannel
 from channels.qq import QQChannel
 from config import get_channel_name
-from core import ClaudeChat
+from core import ChatSessionManager
 
 CHANNELS = {
     "terminal": TerminalChannel,
@@ -33,19 +33,19 @@ async def start() -> None:
         print("Run 'python clink.py setup' to configure.")
         sys.exit(1)
 
-    chat = ClaudeChat()
+    sessions = ChatSessionManager()
     channel = channel_cls()
 
-    async def handler(text: str) -> str | None:
+    async def handler(session_key: str, text: str) -> str | None:
         if text in ("/new", "/reset", "/clear"):
-            await chat.reset()
+            await sessions.reset(session_key)
             return "Session reset."
-        return await chat.chat(text)
+        return await sessions.chat(session_key, text)
 
     try:
         await channel.start(handler)
     finally:
-        await chat.close()
+        await sessions.close()
 
 
 def main() -> None:

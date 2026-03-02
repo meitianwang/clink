@@ -3,8 +3,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Awaitable, Callable
 
-# handler 签名: 接收用户文本，返回 AI 回复 (None = 消息已合并，无需回复)
-Handler = Callable[[str], Awaitable[str | None]]
+# handler 签名: (session_key, text) -> 回复文本 (None = 消息已合并，无需回复)
+Handler = Callable[[str, str], Awaitable[str | None]]
 
 
 class Channel(ABC):

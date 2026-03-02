@@ -104,8 +104,9 @@ class WeComChannel(Channel):
         """调用 handler 获取回复，通过 API 发送回企业微信。"""
         if self._handler is None:
             return
+        session_key = f"wecom:{user_id}"
         try:
-            reply = await self._handler(content)
+            reply = await self._handler(session_key, content)
         except Exception as exc:
             reply = f"[Error] {exc}"
 
