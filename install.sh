@@ -221,7 +221,7 @@ fi
 
 # ── Run setup ───────────────────────────────
 info "\n── Running Setup ────────────────────────\n"
-"$VENV_DIR/bin/python" "$CLINK_DIR/clink.py" setup
+"$VENV_DIR/bin/python" "$CLINK_DIR/clink.py" setup < /dev/tty
 
 info "\n── Done! ────────────────────────────────"
 echo ""
