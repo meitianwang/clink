@@ -20,8 +20,7 @@ class ClaudeChat:
 
         self._options = ClaudeAgentOptions(
             system_prompt=persona if persona else "",
-            permission_mode="acceptEdits",
-            max_turns=10,
+            permission_mode="bypassPermissions",
         )
 
     async def _ensure_client(self) -> ClaudeSDKClient:
