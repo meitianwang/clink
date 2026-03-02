@@ -10,8 +10,9 @@ Use Claude Code from QQ, WeChat Work, or any messaging platform.
 
 - **Multi-channel** — QQ Bot, WeChat Work (WeCom), Terminal, and more
 - **Full Claude Code** — tool calls, file operations, multi-turn conversations
+- **Collect mode** — messages sent while the bot is busy are merged into one follow-up turn
 - **One-line install** — `curl | bash`, interactive setup wizard
-- **Custom persona** — set system prompt to control bot behavior
+- **Custom persona** — set system prompt to control bot behavior (supports multi-line paste)
 - **Multi-language** — English / 中文 setup wizard
 
 ---
@@ -159,6 +160,32 @@ Environment variables work as fallback (for Docker/CI):
 | `WECOM_TOKEN` | WeCom Callback Token |
 | `WECOM_ENCODING_AES_KEY` | WeCom AES Key |
 | `WECOM_PORT` | WeCom callback port (default: 8080) |
+
+---
+
+## How It Works / 工作原理
+
+### Message Collect Mode / 消息收集模式
+
+When the bot is busy processing a message, incoming messages are **queued and merged** into a single follow-up turn (inspired by [OpenClaw](https://github.com/openclaw/openclaw)):
+
+当机器人正在处理消息时, 新到达的消息会被**收集合并**为一个 follow-up turn (灵感来自 [OpenClaw](https://github.com/openclaw/openclaw)):
+
+```
+User: "find the singvc code"          → agent starts processing
+User: "especially the inference part"  → queued
+User: "and the training scripts"       → queued
+
+Agent finishes first message → sends reply
+  ↓
+Merges queued messages: "especially the inference part\nand the training scripts"
+  ↓
+Processes as one turn → sends merged reply
+```
+
+This prevents response mix-ups, empty replies, and out-of-order messages.
+
+避免了回复错位、空回复和乱序问题。
 
 ---
 
