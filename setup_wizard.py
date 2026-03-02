@@ -1,4 +1,4 @@
-"""Interactive setup wizard for Clink."""
+"""Interactive setup wizard for Clink (multi-language)."""
 
 from __future__ import annotations
 
@@ -11,12 +11,236 @@ import asyncio
 
 from config import CONFIG_FILE, load_config, save_config
 
-CHANNELS = [
-    ("terminal", "Local terminal (no setup needed)"),
-    ("qq", "QQ Bot (WebSocket, no public IP needed)"),
-    ("wecom", "WeChat Work (Webhook, needs public URL)"),
-]
+# ── i18n ────────────────────────────────────
 
+TEXTS: dict[str, dict[str, str]] = {
+    "lang_prompt": {
+        "en": "Choose language / 选择语言:\n\n  1. English\n  2. 中文\n",
+        "zh": "Choose language / 选择语言:\n\n  1. English\n  2. 中文\n",
+    },
+    "lang_invalid": {
+        "en": "  Please enter 1 or 2.",
+        "zh": "  请输入 1 或 2。",
+    },
+    "setup_title": {
+        "en": "Clink Setup",
+        "zh": "Clink 安装引导",
+    },
+    "config_exists": {
+        "en": "  Config already exists: {path}\n  Current channel: {channel}\n",
+        "zh": "  配置文件已存在: {path}\n  当前通道: {channel}\n",
+    },
+    "overwrite": {
+        "en": "  Overwrite? [y/N]: ",
+        "zh": "  是否覆盖? [y/N]: ",
+    },
+    "setup_cancelled": {
+        "en": "\n  Setup cancelled. Existing config preserved.",
+        "zh": "\n  已取消。保留现有配置。",
+    },
+    "checking": {
+        "en": "Checking prerequisites...\n",
+        "zh": "检查环境...\n",
+    },
+    "py_need": {
+        "en": "need >= 3.10",
+        "zh": "需要 >= 3.10",
+    },
+    "cli_not_found": {
+        "en": "not found — install: npm i -g @anthropic-ai/claude-code",
+        "zh": "未找到 — 安装: npm i -g @anthropic-ai/claude-code",
+    },
+    "missing_pkg": {
+        "en": "\n  ✗ Missing packages: {pkgs}\n  Installing...",
+        "zh": "\n  ✗ 缺少依赖: {pkgs}\n  正在安装...",
+    },
+    "all_pkg_ok": {
+        "en": "All pip packages installed",
+        "zh": "所有 pip 依赖已就绪",
+    },
+    "fix_and_rerun": {
+        "en": "Please fix the issues above and re-run setup.",
+        "zh": "请修复以上问题后重新运行 setup。",
+    },
+    "choose_channel": {
+        "en": "Choose a channel:\n",
+        "zh": "选择通道:\n",
+    },
+    "channel_terminal": {
+        "en": "Local terminal (no setup needed)",
+        "zh": "本地终端 (无需配置)",
+    },
+    "channel_qq": {
+        "en": "QQ Bot (WebSocket, no public IP needed)",
+        "zh": "QQ 机器人 (WebSocket, 无需公网 IP)",
+    },
+    "channel_wecom": {
+        "en": "WeChat Work (Webhook, needs public URL)",
+        "zh": "企业微信 (Webhook, 需要公网地址)",
+    },
+    "enter_number": {
+        "en": "  Please enter a number 1-3.",
+        "zh": "  请输入 1-3 的数字。",
+    },
+    # ── QQ Guide ──
+    "qq_title": {
+        "en": "QQ Bot Setup",
+        "zh": "QQ 机器人配置",
+    },
+    "qq_guide": {
+        "en": (
+            "  How to get your QQ Bot credentials:\n\n"
+            "  1. Open QQ Bot Platform: https://q.qq.com/\n"
+            "  2. Log in with your QQ account\n"
+            "  3. Click 'Create Bot'\n"
+            "  4. Fill in bot name and description, submit for review\n"
+            "  5. After approval, go to 'Development Settings'\n"
+            "  6. Find AppID and AppSecret on that page\n"
+            "     (AppSecret may need to click 'Reset' to reveal)\n\n"
+            "  Note: New bots are in sandbox mode by default.\n"
+            "  Add test users in 'Sandbox Config' to test.\n"
+        ),
+        "zh": (
+            "  如何获取 QQ 机器人凭证:\n\n"
+            "  1. 打开 QQ 开放平台: https://q.qq.com/\n"
+            "  2. 用你的 QQ 号登录\n"
+            "  3. 点击「创建机器人」\n"
+            "  4. 填写机器人名称和简介, 提交审核\n"
+            "  5. 审核通过后, 进入「开发设置」页面\n"
+            "  6. 在页面上找到 AppID 和 AppSecret\n"
+            "     (AppSecret 可能需要点「重置」才能看到)\n\n"
+            "  提示: 新创建的机器人默认在沙箱模式。\n"
+            "  在「沙箱配置」中添加测试用户即可测试。\n"
+        ),
+    },
+    "qq_appid": {
+        "en": "  AppID: ",
+        "zh": "  AppID: ",
+    },
+    "qq_secret": {
+        "en": "  AppSecret: ",
+        "zh": "  AppSecret: ",
+    },
+    "qq_verify": {
+        "en": "\n  Testing QQ Bot connection... ",
+        "zh": "\n  测试 QQ 机器人连接... ",
+    },
+    "qq_verify_ok": {
+        "en": "✓ Credentials saved (will verify on first start)",
+        "zh": "✓ 凭证已保存 (将在首次启动时验证)",
+    },
+    # ── WeCom Guide ──
+    "wecom_title": {
+        "en": "WeChat Work (WeCom) Setup",
+        "zh": "企业微信配置",
+    },
+    "wecom_guide": {
+        "en": (
+            "  How to get your WeCom credentials:\n\n"
+            "  Step 1: Get Corp ID\n"
+            "    - Login: https://work.weixin.qq.com/wework_admin/loginpage_wx\n"
+            "    - Go to 'My Enterprise' at bottom of sidebar\n"
+            "    - Corp ID is at the bottom of that page\n\n"
+            "  Step 2: Create App & Get Agent ID + Secret\n"
+            "    - Go to 'App Management' > 'Create App'\n"
+            "    - Set app name, logo, and visibility scope\n"
+            "    - After creation, find Agent ID and Secret on the app page\n"
+            "    - Secret may need to click 'View' and verify via admin's WeCom\n\n"
+            "  Step 3: Set Callback URL\n"
+            "    - On app page, find 'Receive Messages' section\n"
+            "    - Click 'Set API Receive'\n"
+            "    - Enter your callback URL: https://<your-domain>/callback\n"
+            "    - Set a Token (any random string)\n"
+            "    - Set an EncodingAESKey (click 'Random' to generate)\n"
+            "    - Save — WeCom will verify the URL immediately\n\n"
+            "  Tip: Use Cloudflare Tunnel for public URL:\n"
+            "    cloudflared tunnel --url http://localhost:8080\n"
+        ),
+        "zh": (
+            "  如何获取企业微信凭证:\n\n"
+            "  第一步: 获取 Corp ID (企业 ID)\n"
+            "    - 登录管理后台: https://work.weixin.qq.com/wework_admin/loginpage_wx\n"
+            "    - 点击左侧边栏底部的「我的企业」\n"
+            "    - 页面最下方就是「企业 ID」\n\n"
+            "  第二步: 创建应用, 获取 Agent ID 和 Secret\n"
+            "    - 进入「应用管理」>「创建应用」\n"
+            "    - 设置应用名称、图标、可见范围\n"
+            "    - 创建完成后, 在应用详情页找到 AgentId 和 Secret\n"
+            "    - Secret 可能需要点「查看」并通过管理员的企业微信验证\n\n"
+            "  第三步: 设置回调地址\n"
+            "    - 在应用详情页找到「接收消息」板块\n"
+            "    - 点击「设置API接收」\n"
+            "    - 填入回调地址: https://<你的域名>/callback\n"
+            "    - 设置一个 Token (随意字符串即可)\n"
+            "    - 设置 EncodingAESKey (点「随机获取」自动生成)\n"
+            "    - 保存 — 企业微信会立即验证该地址\n\n"
+            "  提示: 用 Cloudflare Tunnel 暴露本地端口到公网:\n"
+            "    cloudflared tunnel --url http://localhost:8080\n"
+        ),
+    },
+    "wecom_corp_id": {
+        "en": "  Corp ID: ",
+        "zh": "  企业 ID (Corp ID): ",
+    },
+    "wecom_secret": {
+        "en": "  Corp Secret: ",
+        "zh": "  应用 Secret (Corp Secret): ",
+    },
+    "wecom_agent_id": {
+        "en": "  Agent ID: ",
+        "zh": "  应用 ID (Agent ID): ",
+    },
+    "wecom_token": {
+        "en": "  Callback Token: ",
+        "zh": "  回调 Token: ",
+    },
+    "wecom_aes_key": {
+        "en": "  Encoding AES Key: ",
+        "zh": "  EncodingAESKey: ",
+    },
+    "wecom_port": {
+        "en": "  Port [8080]: ",
+        "zh": "  端口 [8080]: ",
+    },
+    "wecom_verify": {
+        "en": "\n  Testing WeCom access_token... ",
+        "zh": "\n  测试企业微信 access_token... ",
+    },
+    "wecom_verify_ok": {
+        "en": "✓ Access token obtained successfully!",
+        "zh": "✓ access_token 获取成功!",
+    },
+    "save_anyway": {
+        "en": "\n  Save config anyway? [y/N]: ",
+        "zh": "\n  仍然保存配置? [y/N]: ",
+    },
+    "cancelled": {
+        "en": "\n  Setup cancelled.",
+        "zh": "\n  已取消安装。",
+    },
+    "config_saved": {
+        "en": "\n  Config saved to {path}",
+        "zh": "\n  配置已保存到 {path}",
+    },
+    "setup_done": {
+        "en": "  ✓ Setup complete! Run:\n\n    python clink.py start",
+        "zh": "  ✓ 安装完成! 运行:\n\n    python clink.py start",
+    },
+}
+
+# Current language — set by choose_language()
+_lang = "en"
+
+
+def t(key: str, **kwargs: str) -> str:
+    """Get translated text for current language."""
+    text = TEXTS.get(key, {}).get(_lang, key)
+    if kwargs:
+        text = text.format(**kwargs)
+    return text
+
+
+# ── Helpers ─────────────────────────────────
 
 def _print_header(title: str) -> None:
     width = max(len(title) + 4, 40)
@@ -30,40 +254,6 @@ def _check(label: str, ok: bool, detail: str = "") -> bool:
     suffix = f" ({detail})" if detail else ""
     print(f"  {mark} {label}{suffix}")
     return ok
-
-
-def check_prerequisites() -> bool:
-    """Check Python version and Claude CLI availability."""
-    print("Checking prerequisites...\n")
-
-    # Python version
-    v = sys.version_info
-    py_ok = v >= (3, 10)
-    _check(f"Python {v.major}.{v.minor}.{v.micro}", py_ok,
-           "need >= 3.10" if not py_ok else "")
-
-    # Claude CLI
-    claude_path = shutil.which("claude")
-    claude_ok = claude_path is not None
-    _check("Claude Code CLI", claude_ok,
-           claude_path if claude_ok else "not found — install: npm i -g @anthropic-ai/claude-code")
-
-    # pip dependencies
-    missing = _check_packages()
-    if missing:
-        print(f"\n  ✗ Missing packages: {', '.join(missing)}")
-        print("  Installing...", end=" ", flush=True)
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "-q"] + missing,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        print("done.")
-    else:
-        _check("All pip packages installed", True)
-
-    print()
-    return py_ok and claude_ok
 
 
 _PKG_IMPORT_MAP = {
@@ -95,17 +285,69 @@ def _check_packages() -> list[str]:
     return missing
 
 
+# ── Steps ───────────────────────────────────
+
+def choose_language() -> None:
+    """Let user pick a language."""
+    global _lang
+    print(TEXTS["lang_prompt"]["en"])
+    while True:
+        choice = input("  > ").strip()
+        if choice == "1":
+            _lang = "en"
+            return
+        if choice == "2":
+            _lang = "zh"
+            return
+        print(TEXTS["lang_invalid"]["en"])
+
+
+def check_prerequisites() -> bool:
+    """Check Python version and Claude CLI availability."""
+    print(t("checking"))
+
+    v = sys.version_info
+    py_ok = v >= (3, 10)
+    _check(f"Python {v.major}.{v.minor}.{v.micro}", py_ok,
+           t("py_need") if not py_ok else "")
+
+    claude_path = shutil.which("claude")
+    claude_ok = claude_path is not None
+    _check("Claude Code CLI", claude_ok,
+           claude_path if claude_ok else t("cli_not_found"))
+
+    missing = _check_packages()
+    if missing:
+        print(t("missing_pkg", pkgs=", ".join(missing)), end=" ", flush=True)
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "-q"] + missing,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print("done." if _lang == "en" else "完成。")
+    else:
+        _check(t("all_pkg_ok"), True)
+
+    print()
+    return py_ok and claude_ok
+
+
 def choose_channel() -> str:
     """Let user pick a channel."""
-    print("Choose a channel:\n")
-    for i, (name, desc) in enumerate(CHANNELS, 1):
+    channels = [
+        ("terminal", t("channel_terminal")),
+        ("qq", t("channel_qq")),
+        ("wecom", t("channel_wecom")),
+    ]
+    print(t("choose_channel"))
+    for i, (name, desc) in enumerate(channels, 1):
         print(f"  {i}. {name:10s} - {desc}")
 
     while True:
         choice = input("\n  > ").strip()
-        if choice.isdigit() and 1 <= int(choice) <= len(CHANNELS):
-            return CHANNELS[int(choice) - 1][0]
-        print("  Please enter a number 1-3.")
+        if choice.isdigit() and 1 <= int(choice) <= len(channels):
+            return channels[int(choice) - 1][0]
+        print(t("enter_number"))
 
 
 def collect_config(channel: str) -> dict:
@@ -114,48 +356,21 @@ def collect_config(channel: str) -> dict:
         return {}
 
     if channel == "qq":
-        _print_header("QQ Bot Setup")
-        print("  How to get your QQ Bot credentials:\n")
-        print("  1. Open QQ Bot Platform: https://q.qq.com/")
-        print("  2. Log in with your QQ account")
-        print("  3. Click 'Create Bot' (创建机器人)")
-        print("  4. Fill in bot name and description, submit for review")
-        print("  5. After approval, go to 'Development Settings' (开发设置)")
-        print("  6. Find AppID and AppSecret on that page")
-        print("     (AppSecret may need to click 'Reset' to reveal)\n")
-        print("  Note: New bots are in sandbox mode by default.")
-        print("  Add test users in 'Sandbox Config' (沙箱配置) to test.\n")
-        appid = input("  AppID: ").strip()
-        secret = input("  AppSecret: ").strip()
+        _print_header(t("qq_title"))
+        print(t("qq_guide"))
+        appid = input(t("qq_appid")).strip()
+        secret = input(t("qq_secret")).strip()
         return {"appid": appid, "secret": secret}
 
     if channel == "wecom":
-        _print_header("WeChat Work (WeCom) Setup")
-        print("  How to get your WeCom credentials:\n")
-        print("  Step 1: Get Corp ID")
-        print("    - Login: https://work.weixin.qq.com/wework_admin/loginpage_wx")
-        print("    - Go to 'My Enterprise' (我的企业) at bottom of sidebar")
-        print("    - Corp ID is at the bottom of that page\n")
-        print("  Step 2: Create App & Get Agent ID + Secret")
-        print("    - Go to 'App Management' (应用管理) > 'Create App' (创建应用)")
-        print("    - Set app name, logo, and visibility scope")
-        print("    - After creation, find Agent ID and Secret on the app page")
-        print("    - Secret may need to click 'View' and verify via admin's WeCom\n")
-        print("  Step 3: Set Callback URL")
-        print("    - On app page, find 'Receive Messages' (接收消息) section")
-        print("    - Click 'Set API Receive' (设置API接收)")
-        print("    - Enter your callback URL: https://<your-domain>/callback")
-        print("    - Set a Token (any random string)")
-        print("    - Set an EncodingAESKey (click 'Random' to generate)")
-        print("    - Save — WeCom will verify the URL immediately\n")
-        print("  Tip: Use Cloudflare Tunnel for public URL:")
-        print("    cloudflared tunnel --url http://localhost:8080\n")
-        corp_id = input("  Corp ID: ").strip()
-        corp_secret = input("  Corp Secret: ").strip()
-        agent_id = input("  Agent ID: ").strip()
-        token = input("  Callback Token: ").strip()
-        aes_key = input("  Encoding AES Key: ").strip()
-        port = input("  Port [8080]: ").strip() or "8080"
+        _print_header(t("wecom_title"))
+        print(t("wecom_guide"))
+        corp_id = input(t("wecom_corp_id")).strip()
+        corp_secret = input(t("wecom_secret")).strip()
+        agent_id = input(t("wecom_agent_id")).strip()
+        token = input(t("wecom_token")).strip()
+        aes_key = input(t("wecom_aes_key")).strip()
+        port = input(t("wecom_port")).strip() or "8080"
         return {
             "corp_id": corp_id,
             "corp_secret": corp_secret,
@@ -174,25 +389,23 @@ def verify_connection(channel: str, channel_cfg: dict) -> bool:
         return True
 
     if channel == "qq":
-        print("\n  Testing QQ Bot connection...", end=" ", flush=True)
+        print(t("qq_verify"), end="", flush=True)
         try:
-            import botpy
-            # Verify by attempting to get WebSocket gateway URL
-            # The actual connection test is lightweight
-            print("✓ Credentials saved (will verify on first start)")
+            import botpy  # noqa: F401
+            print(t("qq_verify_ok"))
             return True
         except Exception as exc:
             print(f"✗ {exc}")
             return False
 
     if channel == "wecom":
-        print("\n  Testing WeCom access_token...", end=" ", flush=True)
+        print(t("wecom_verify"), end="", flush=True)
         try:
             ok = asyncio.run(_test_wecom_token(
                 channel_cfg["corp_id"], channel_cfg["corp_secret"]
             ))
             if ok:
-                print("✓ Access token obtained successfully!")
+                print(t("wecom_verify_ok"))
             return ok
         except Exception as exc:
             print(f"✗ {exc}")
@@ -209,29 +422,33 @@ async def _test_wecom_token(corp_id: str, corp_secret: str) -> bool:
         async with session.get(url, params=params) as resp:
             data = await resp.json()
     if data.get("errcode", 0) != 0:
-        print(f"✗ WeCom API error: {data.get('errmsg', 'unknown')}")
+        print(f"✗ API error: {data.get('errmsg', 'unknown')}")
         return False
     return True
 
+
+# ── Main ────────────────────────────────────
 
 def run_setup() -> None:
     """Main setup wizard entry point."""
     _print_header("Clink Setup")
 
+    # Step 0: Choose language
+    choose_language()
+
     # Check if config already exists
     if CONFIG_FILE.exists():
         existing = load_config()
         ch = existing.get("channel", "unknown")
-        print(f"  Config already exists: {CONFIG_FILE}")
-        print(f"  Current channel: {ch}\n")
-        overwrite = input("  Overwrite? [y/N]: ").strip().lower()
+        print(t("config_exists", path=str(CONFIG_FILE), channel=ch))
+        overwrite = input(t("overwrite")).strip().lower()
         if overwrite != "y":
-            print("\n  Setup cancelled. Existing config preserved.")
+            print(t("setup_cancelled"))
             return
 
     # Step 1: Prerequisites
     if not check_prerequisites():
-        print("Please fix the issues above and re-run setup.")
+        print(t("fix_and_rerun"))
         return
 
     # Step 2: Choose channel
@@ -243,9 +460,9 @@ def run_setup() -> None:
     # Step 4: Verify connection
     if channel_cfg:
         if not verify_connection(channel, channel_cfg):
-            save_anyway = input("\n  Save config anyway? [y/N]: ").strip().lower()
+            save_anyway = input(t("save_anyway")).strip().lower()
             if save_anyway != "y":
-                print("\n  Setup cancelled.")
+                print(t("cancelled"))
                 return
 
     # Step 5: Save config
@@ -254,9 +471,8 @@ def run_setup() -> None:
         config_data[channel] = channel_cfg
 
     save_config(config_data)
-    print(f"\n  Config saved to {CONFIG_FILE}")
+    print(t("config_saved", path=str(CONFIG_FILE)))
 
     print(f"\n{'─' * 40}")
-    print("  ✓ Setup complete! Run:\n")
-    print("    python clink.py start")
+    print(t("setup_done"))
     print()
