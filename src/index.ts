@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { QQChannel } from "./channels/qq.js";
 import { WeComChannel } from "./channels/wecom.js";
 import { getChannelName } from "./config.js";
@@ -25,7 +23,10 @@ async function start(): Promise<void> {
   const sessions = new ChatSessionManager();
   const channel = new ChannelCls();
 
-  const handler = async (sessionKey: string, text: string): Promise<string | null> => {
+  const handler = async (
+    sessionKey: string,
+    text: string,
+  ): Promise<string | null> => {
     if (["/new", "/reset", "/clear"].includes(text)) {
       await sessions.reset(sessionKey);
       return "Session reset.";
@@ -63,7 +64,7 @@ function main(): void {
           "Commands:\n" +
           "  setup    Interactive setup wizard\n" +
           "  start    Start the bot (default)\n" +
-          "  doctor   Diagnose environment issues\n"
+          "  doctor   Diagnose environment issues\n",
       );
       process.exit(1);
   }

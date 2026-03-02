@@ -1,6 +1,6 @@
 {
   "name": "claude-paw",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Use Claude Code from QQ, WeChat Work, or any messaging platform",
   "type": "module",
   "bin": {
