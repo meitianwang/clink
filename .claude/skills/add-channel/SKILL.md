@@ -1,267 +1,269 @@
-# Skill: Add a New Channel to Clink
+# Skill: Add a New Channel to cpaw
 
 Step-by-step guide for adding a new messaging channel (e.g., Telegram, Slack, Discord).
 
 ## Architecture Overview
 
 ```
-clink.py          → CHANNELS dict (name → class mapping)
-channels/base.py  → Channel ABC + Handler type
-channels/xxx.py   → Your new channel implementation
-config.py         → XxxConfig dataclass + from_config()
-setup_wizard.py   → i18n texts + collect_config() + verify_connection()
-doctor.py         → Credential validation
-requirements.txt  → New SDK dependencies (if any)
+src/index.ts          → channel class import + start()
+src/channels/base.ts  → Channel abstract class + Handler type
+src/channels/xxx.ts   → Your new channel implementation
+src/config.ts         → loadXxxConfig() function
+src/types.ts          → XxxConfig interface
+src/setup-wizard.ts   → i18n texts + collect_config() + verify_connection()
+src/doctor.ts         → Credential validation
+src/i18n.ts           → Translation texts
 ```
 
-## Checklist (6 files to touch)
+## Checklist (7 files to touch)
 
-### 1. `channels/<name>.py` — Channel Implementation
+### 1. `src/channels/<name>.ts` — Channel Implementation
 
-Inherit from `Channel`, implement `async def start(self, handler)`.
+Inherit from `Channel`, implement `async start(handler)`.
 
-```python
-from channels.base import Channel, Handler
-from config import XxxConfig
+```typescript
+import { Channel, type Handler } from "./base.js";
+import { loadXxxConfig } from "../config.js";
 
-class XxxChannel(Channel):
-    def __init__(self) -> None:
-        self._cfg = XxxConfig.from_config()
+export class XxxChannel extends Channel {
+  private cfg = loadXxxConfig();
 
-    async def start(self, handler: Handler) -> None:
-        print("Clink Xxx channel starting...")
-        # Connect to platform, listen for messages
-        # When message received:
-        #   reply = await handler(content)
-        #   send reply back to user
+  async start(handler: Handler): Promise<void> {
+    console.log("Cpaw Xxx channel starting...");
+    // Connect to platform, listen for messages
+    // When message received:
+    //   const reply = await handler(sessionKey, prompt);
+    //   send reply back to user
+
+    // Block forever
+    await new Promise(() => {});
+  }
+}
 ```
 
 **Key patterns:**
 
-- `Handler` signature: `async (str) -> str`. Call `await handler(text)` with user message, get AI reply.
-- Always wrap `handler()` in try/except — don't let SDK errors crash the bot:
-  ```python
-  try:
-      reply = await handler(content)
-  except Exception as exc:
-      print(f"[Xxx] Handler error: {exc}")
-      reply = f"[Error] {exc}"
+- `Handler` signature: `(sessionKey: string, text: string) => Promise<string | null>`.
+- Return `null` means message was merged (collect mode), skip reply.
+- Always wrap `handler()` in try/catch:
+  ```typescript
+  try {
+    const reply = await handler(sessionKey, prompt);
+    if (reply === null) return; // merged
+    await sendReply(reply);
+  } catch (err) {
+    console.error(`[Xxx] Error: ${err}`);
+  }
   ```
-- Add `print()` logs for received/replied messages — essential for debugging:
-  ```python
-  print(f"[Xxx] Received: {content!r}")
-  print(f"[Xxx] Replying: {reply[:100]}...")
+- Add `console.log` for received/replied messages:
+  ```typescript
+  console.log(`[Xxx] Received (${sessionKey}): ${prompt.slice(0, 120)}`);
+  console.log(`[Xxx] Replying: ${reply.slice(0, 100)}...`);
   ```
-- Strip and validate content before calling handler:
-  ```python
-  content = (message.content or "").strip()
-  if not content:
-      return
-  ```
-- `start()` must block (run forever). Use `await asyncio.Event().wait()` if your SDK callback is non-blocking.
+- `start()` must block forever. Use `await new Promise(() => {})` if your SDK callback is non-blocking.
 
 **Gotcha — SDK Intent/Permission Configuration:**
 
-Many bot SDKs require explicit intent/event subscription. Get this wrong and the bot connects successfully but receives NO messages — with NO error output. This is the #1 debugging headache.
+Many bot SDKs require explicit intent/event subscription. Get this wrong and the bot connects successfully but receives NO messages — with NO error output. Always verify which intent flag maps to which event handler by reading the SDK source, not just the docs.
 
-Example from QQ Bot: `botpy.Intents(public_messages=True)` enables C2C messages. Using `direct_message=True` instead would connect fine but silently drop all C2C events. Always verify which intent flag maps to which event handler by reading the SDK source, not just the docs.
+### 2. Rich Media Support (REQUIRED)
 
-### 2. `config.py` — Config Dataclass
+Every channel **MUST** support rich media messages, not just text. See `src/channels/qq.ts` as the reference implementation.
 
-Add a frozen dataclass with `from_config()` class method:
+#### Required infrastructure (can be shared across channels):
 
-```python
-@dataclass(frozen=True)
-class XxxConfig:
-    api_token: str
-    # ... other fields
+```typescript
+import { writeFileSync, mkdirSync } from "node:fs";
+import { join, basename } from "node:path";
+import { tmpdir } from "node:os";
 
-    @classmethod
-    def from_config(cls) -> XxxConfig:
-        """Load from yaml first, env vars as fallback."""
-        cfg = load_config().get("xxx", {})
-        return cls(
-            api_token=cfg.get("api_token") or os.environ["XXX_API_TOKEN"],
-        )
+interface MsgElem {
+  type: string;
+  [key: string]: unknown;
+}
+
+const TEMP_DIR = join(tmpdir(), "cpaw-files");
+mkdirSync(TEMP_DIR, { recursive: true });
+const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024; // 50 MB
 ```
 
-**Rules:**
-- YAML config is primary, environment variables are fallback (for Docker/CI)
-- Key names in YAML use `snake_case`
-- Config section name = channel name (e.g., `xxx:` in config.yaml)
+#### File download helper:
 
-### 3. `clink.py` — Register Channel
-
-Add import and dict entry:
-
-```python
-from channels.xxx import XxxChannel
-
-CHANNELS = {
-    "terminal": TerminalChannel,
-    "wecom": WeComChannel,
-    "qq": QQChannel,
-    "xxx": XxxChannel,         # ← add here
+```typescript
+async function downloadFile(rawUrl: string, name?: string): Promise<string> {
+  const url = rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const contentLength = Number(resp.headers.get("content-length") ?? 0);
+  if (contentLength > MAX_DOWNLOAD_SIZE) {
+    throw new Error(`File too large: ${contentLength} bytes`);
+  }
+  const buffer = Buffer.from(await resp.arrayBuffer());
+  // Sanitize name to prevent path traversal
+  const safeName = name ? basename(name).replace(/[^\w.\-]/g, "_") : undefined;
+  const filename = safeName
+    ? `${Date.now()}-${safeName}`
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const filepath = join(TEMP_DIR, filename);
+  writeFileSync(filepath, buffer);
+  return filepath;
 }
 ```
 
-### 4. `setup_wizard.py` — Interactive Setup
+**Security requirements:**
+- `basename()` to strip path components (prevent path traversal)
+- Timestamp prefix to avoid filename collision
+- Size limit check before loading into memory
+- Sanitize special characters in filename
 
-This is the biggest change. Multiple sections need updating:
+#### buildPrompt — Converting message elements to prompt:
 
-#### 4a. i18n Texts
+Every channel's SDK delivers messages differently, but the output prompt must follow the same format. Parse the SDK's message structure into a unified prompt:
 
-Add all user-facing strings in both English and Chinese to the `TEXTS` dict:
+| Element type | Prompt format | Claude ability |
+|-------------|---------------|---------------|
+| Text | Direct text | ✅ |
+| Image | `[图片: /tmp/cpaw-files/xxx.png，请用 Read 工具查看]` | ✅ Read tool |
+| File (PDF etc.) | `[文件: /tmp/cpaw-files/doc.pdf，请用 Read 工具查看]` | ✅ Read tool |
+| Video | `[视频文件: /tmp/cpaw-files/xxx.mp4]` | ❌ but knows it exists |
+| Audio | `[语音文件: /tmp/cpaw-files/xxx.mp3]` | ❌ but knows it exists |
+| Emoji/Sticker | `[表情:描述]` | — |
+| @Mention | `[@用户:id]` or `[@全体成员]` | — context |
+| Reply/Quote | `[回复消息: "被引用的内容..."]` | — context |
+| Unknown + URL | Download + `[文件: /path，请用 Read 工具查看]` | depends |
+| Unknown no URL | Ignore | — |
 
-```python
-# Channel selection option
-"channel_xxx": {
-    "en": "Xxx Bot (brief description)",
-    "zh": "Xxx 机器人 (简要说明)",
-},
-# Setup guide title
-"xxx_title": {
-    "en": "Xxx Setup",
-    "zh": "Xxx 配置",
-},
-# Credential guide — MUST be detailed and complete
-"xxx_guide": {
-    "en": "  How to get your Xxx credentials:\n\n  1. Go to ...\n  ...",
-    "zh": "  如何获取 Xxx 凭证:\n\n  1. 打开 ...\n  ...",
-},
-# Input prompts for each credential field
-"xxx_token": {
-    "en": "  API Token: ",
-    "zh": "  API Token: ",
-},
-# Verification messages
-"xxx_verify": {
-    "en": "\n  Testing Xxx connection... ",
-    "zh": "\n  测试 Xxx 连接... ",
-},
-"xxx_verify_ok": {
-    "en": "✓ Connected!",
-    "zh": "✓ 连接成功!",
-},
-```
+**Key principles:**
+1. **Download all media with URLs** (images, files, video, audio) to `TEMP_DIR`
+2. **Don't clean up temp files** — Collect mode may delay processing; let OS clean `/tmp`
+3. **Fallback gracefully** — if download fails, still include a placeholder in prompt
+4. **Image/PDF paths let Claude use Read tool** — this is the core mechanism for multimodal support
 
-#### 4b. `choose_channel()` — Add Option
+#### Message cache for reply lookups:
 
-Update the channels list:
+Most bot APIs don't support fetching messages by ID. Use a local LRU cache:
 
-```python
-def choose_channel() -> str:
-    channels = [
-        ("terminal", t("channel_terminal")),
-        ("qq", t("channel_qq")),
-        ("wecom", t("channel_wecom")),
-        ("xxx", t("channel_xxx")),    # ← add here
-    ]
-```
+```typescript
+const MSG_CACHE = new Map<string, string>(); // message_id → prompt text
+const MSG_CACHE_MAX = 200;
 
-Also update `enter_number` text if the number range changes (e.g., 1-3 → 1-4).
-
-#### 4c. `collect_config()` — Credential Input
-
-Add a branch for your channel:
-
-```python
-if channel == "xxx":
-    _print_header(t("xxx_title"))
-    print(t("xxx_guide"))
-    token = input(t("xxx_token")).strip()
-    return {"api_token": token}
-```
-
-#### 4d. `verify_connection()` — Test Credentials
-
-Add verification logic:
-
-```python
-if channel == "xxx":
-    print(t("xxx_verify"), end="", flush=True)
-    try:
-        # Make a lightweight API call to verify credentials
-        ok = asyncio.run(_test_xxx(channel_cfg["api_token"]))
-        if ok:
-            print(t("xxx_verify_ok"))
-        return ok
-    except Exception as exc:
-        print(f"✗ {exc}")
-        return False
-```
-
-**Critical setup guide requirements:**
-
-The guide text (`xxx_guide`) MUST cover ALL of the following. These are lessons from real user frustration:
-
-1. **Where to get credentials** — exact URL, step-by-step with menu paths
-2. **Platform-specific gotchas** — sandbox mode, review/approval process, test user limits
-3. **How to actually use the bot after setup** — don't assume users know! (e.g., QQ bots can't be searched, must scan QR code)
-4. **Display quirks** — name suffixes, avatar restrictions, anything users will notice and wonder about
-5. **Permission/scope requirements** — what permissions to enable on the platform for the bot to actually receive messages
-
-### 5. `doctor.py` — Diagnostic Check
-
-Add your channel to the credential validation:
-
-```python
-# In run_doctor(), inside the cfg_exists block:
-channel in ("terminal", "qq", "wecom", "xxx"),  # ← update valid list
-
-if channel == "xxx":
-    xxx_cfg = cfg.get("xxx", {})
-    all_ok &= _check(
-        "Xxx credentials",
-        bool(xxx_cfg.get("api_token")),
-        "missing api_token",
-    )
-```
-
-### 6. `requirements.txt` — Dependencies
-
-Add any new Python packages. **Watch out for:**
-
-- **Package name vs import name mismatch**: e.g., `pyyaml` installs but imports as `yaml`, `qq-botpy` imports as `botpy`. If your package has this mismatch, update `_PKG_IMPORT_MAP` in BOTH `setup_wizard.py` and `doctor.py`:
-  ```python
-  _PKG_IMPORT_MAP = {
-      "pyyaml": "yaml",
-      "qq-botpy": "botpy",
-      "claude-agent-sdk": "claude_agent_sdk",
-      "your-sdk": "your_sdk",          # ← add here
+function cacheMessage(msgId: string, text: string): void {
+  if (!msgId) return;
+  if (MSG_CACHE.size >= MSG_CACHE_MAX) {
+    const oldest = MSG_CACHE.keys().next().value!;
+    MSG_CACHE.delete(oldest);
   }
-  ```
+  MSG_CACHE.set(msgId, text);
+}
+```
 
-## Lessons Learned (from real deployment)
+Cache every incoming message's prompt. When a reply element references a message_id, look it up in the cache.
 
-1. **Intent/permission silent failures**: Bot connects, shows "online", but receives zero messages. No error output. Always verify event subscription by reading SDK source code — docs may be outdated or ambiguous.
+#### Platform-specific parsing examples:
 
-2. **Sandbox/test mode**: Many platforms (QQ, WeChat, Telegram bots) have sandbox or test modes with restrictions. Document these clearly in the setup guide. Users WILL hit these and WILL be confused if not warned.
+**QQ** (`qq-group-bot`): `e.message` is an array of `{type, ...fields}` elements. Types: `text`, `image`, `video`, `audio`, `face`, `at`, `reply`, `markdown`, plus `application` etc. from `attachments`.
 
-3. **Bot discoverability**: Some platforms don't let users search for bots. Document the exact method to find/add the bot (QR code, link, invite, etc.).
+**Telegram** (hypothetical): `message.text`, `message.photo[]`, `message.document`, `message.voice`, `message.reply_to_message`, `message.entities[].type === "mention"`.
 
-4. **Name display quirks**: Platforms may append suffixes (e.g., QQ adds "-测试中" in sandbox). Mention this so users don't think something is broken.
+**Slack** (hypothetical): `event.text`, `event.files[]`, `event.blocks[].type`, `event.thread_ts` for replies.
 
-5. **All user-facing text must be bilingual** (English + Chinese) in the `TEXTS` dict.
+**WeChat Work**: XML message with `<MsgType>` (text/image/voice/video/file). Image/file via media API download.
 
-6. **`start()` must not return** until the bot is shutting down. Use `await asyncio.Event().wait()` for callback-based SDKs.
+Each channel must map its SDK's message structure to the unified prompt format above.
 
-7. **Don't silently swallow errors** in message handlers. Always print to stdout — that's how users debug on a remote machine.
+### 3. `src/types.ts` — Config Interface
+
+```typescript
+export interface XxxConfig {
+  readonly apiToken: string;
+  // ... other fields
+}
+```
+
+### 4. `src/config.ts` — Config Loader
+
+```typescript
+export function loadXxxConfig(): XxxConfig {
+  const cfg = loadConfig();
+  const xxx = (cfg.xxx ?? {}) as Record<string, unknown>;
+  return {
+    apiToken: (xxx.api_token as string) ?? process.env.XXX_API_TOKEN ?? "",
+  };
+}
+```
+
+Rules:
+- YAML config is primary, env vars are fallback
+- Key names in YAML use `snake_case`
+- Config section name = channel name
+
+### 5. `src/index.ts` — Register Channel
+
+Add import and instantiation in the channel switch:
+
+```typescript
+import { XxxChannel } from "./channels/xxx.js";
+
+// In start():
+case "xxx":
+  channel = new XxxChannel();
+  break;
+```
+
+### 6. `src/setup-wizard.ts` + `src/i18n.ts` — Interactive Setup
+
+Add i18n texts (both English and Chinese) and setup flow. The setup guide text **MUST** cover:
+
+1. **Where to get credentials** — exact URL, step-by-step
+2. **Platform-specific gotchas** — sandbox mode, approval process, test user limits
+3. **How to use the bot after setup** — don't assume users know!
+4. **Display quirks** — name suffixes, avatar restrictions
+5. **Permission/scope requirements** — what to enable for the bot to receive messages
+
+### 7. `src/doctor.ts` — Diagnostic Check
+
+Add credential validation for the new channel.
+
+## Lessons Learned
+
+1. **Intent/permission silent failures**: Bot connects and shows "online" but receives zero messages. No error. Always verify event subscription by reading SDK source code.
+
+2. **Sandbox/test mode**: Many platforms have sandbox modes with restrictions. Document clearly.
+
+3. **Bot discoverability**: Some platforms don't let users search for bots. Document the exact method (QR code, link, invite).
+
+4. **Name display quirks**: Platforms may append suffixes (QQ adds "-测试中" in sandbox).
+
+5. **All user-facing text must be bilingual** (English + Chinese).
+
+6. **`start()` must block forever** until shutdown.
+
+7. **Don't silently swallow errors** in handlers. Always log to stdout.
+
+8. **Rich media is not optional** — every channel must parse all message types from its SDK, not just text. Users expect images, files, replies, and mentions to work.
 
 ## Testing a New Channel
 
 ```bash
 # 1. Clean state
-rm -rf ~/.clink/config.yaml
+rm -rf ~/.cpaw/config.yaml
 
 # 2. Run setup, select your new channel
-python clink.py setup
+cpaw setup
 
 # 3. Verify environment
-python clink.py doctor
+cpaw doctor
 
-# 4. Start and send a test message
-python clink.py start
+# 4. Start and send test messages
+cpaw start
 
-# 5. Check stdout for [Xxx] Received / Replying logs
+# 5. Test each message type:
+#    - Pure text
+#    - Image + text
+#    - Image only (no text)
+#    - File (PDF, etc.)
+#    - Emoji/sticker
+#    - Reply to a previous message
+#    - @mention someone
+#    - Video / audio (if platform supports)
 ```
