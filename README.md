@@ -119,6 +119,23 @@ wecom:
 
 环境变量（`QQ_BOT_APPID`、`WECOM_CORP_ID` 等）可覆盖配置文件中的值。
 
+### 配置验证
+
+`klaus start` 启动时会自动验证配置，检查必填字段和格式。如有问题会一次性列出所有错误并退出，不会静默失败：
+
+```
+Config invalid
+File: ~/.klaus/config.yaml
+
+  ✗ wecom.corp_id: missing required field "corp_id" (or env: WECOM_CORP_ID)
+    → provide Corp ID
+  ✗ wecom.encoding_aes_key: invalid "encoding_aes_key": must be exactly 43 characters (Base64)
+
+  Run klaus doctor to diagnose, or klaus setup to reconfigure.
+```
+
+`klaus doctor` 也会复用相同的验证逻辑进行诊断。
+
 ## 聊天命令
 
 | 命令 | 效果 |

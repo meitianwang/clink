@@ -1,12 +1,9 @@
 import { existsSync } from "node:fs";
 import { qqPlugin } from "./channels/qq.js";
 import { wecomPlugin } from "./channels/wecom.js";
-import {
-  registerChannel,
-  getChannel,
-  listChannelIds,
-} from "./channels/types.js";
+import { registerChannel, getChannel } from "./channels/types.js";
 import { getChannelName, CONFIG_FILE } from "./config.js";
+import { ensureConfigValid } from "./config-validate.js";
 import { ChatSessionManager } from "./core.js";
 import { t } from "./i18n.js";
 
@@ -35,13 +32,13 @@ async function start(): Promise<void> {
     if (!existsSync(CONFIG_FILE)) return;
   }
 
+  // Validate config before attempting to connect (fail-fast)
+  ensureConfigValid();
+
   const channelName = getChannelName();
   const plugin = getChannel(channelName);
-
   if (!plugin) {
-    console.error(`Unknown channel: ${channelName}`);
-    console.error(`Available: ${listChannelIds().join(", ")}`);
-    console.error("Run 'klaus setup' to configure.");
+    console.error(`Internal error: channel "${channelName}" not registered.`);
     process.exit(1);
   }
 

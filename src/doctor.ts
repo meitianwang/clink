@@ -1,8 +1,8 @@
 import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import pc from "picocolors";
-import { CONFIG_FILE, loadConfig } from "./config.js";
-import { listChannelIds } from "./channels/types.js";
+import { CONFIG_FILE } from "./config.js";
+import { validateConfig, formatValidationIssues } from "./config-validate.js";
 
 function which(cmd: string): string | null {
   try {
@@ -39,7 +39,7 @@ export function runDoctor(): void {
     "npm i -g @anthropic-ai/claude-code",
   );
 
-  // Config file
+  // Config file existence
   const cfgExists = existsSync(CONFIG_FILE);
   allOk &&= check(
     `Config file (${CONFIG_FILE})`,
@@ -47,42 +47,16 @@ export function runDoctor(): void {
     "run: klaus setup",
   );
 
+  // Config validation (reuse shared validation logic)
   if (cfgExists) {
-    const cfg = loadConfig();
-    const channel = (cfg.channel as string) ?? "";
-    const knownIds = listChannelIds();
-    allOk &&= check(
-      `Channel configured: ${channel}`,
-      knownIds.length > 0
-        ? knownIds.includes(channel)
-        : channel === "qq" || channel === "wecom",
-      knownIds.length > 0
-        ? `unknown channel. Available: ${knownIds.join(", ")}`
-        : "unknown channel",
-    );
-
-    if (channel === "qq") {
-      const qqCfg = (cfg.qq as Record<string, string>) ?? {};
-      allOk &&= check(
-        "QQ Bot credentials",
-        Boolean(qqCfg.appid && qqCfg.secret),
-        "missing appid or secret",
-      );
-    } else if (channel === "wecom") {
-      const wc = (cfg.wecom as Record<string, unknown>) ?? {};
-      const required = [
-        "corp_id",
-        "corp_secret",
-        "agent_id",
-        "token",
-        "encoding_aes_key",
-      ];
-      const missing = required.filter((k) => !wc[k]);
-      allOk &&= check(
-        "WeCom credentials",
-        missing.length === 0,
-        `missing: ${missing.join(", ")}`,
-      );
+    const result = validateConfig();
+    if (result.valid) {
+      const channel = result.config.channel as string;
+      allOk &&= check(`Config valid (channel: ${channel})`, true);
+    } else {
+      allOk &&= check("Config validation", false, "see details below");
+      console.log();
+      console.log(formatValidationIssues(result.issues));
     }
   }
 
