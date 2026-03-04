@@ -255,12 +255,28 @@ const TEXTS: Record<string, Record<Lang, string>> = {
     zh: "已找到 cloudflared",
   },
   web_tunnel_not_found: {
+    en: "cloudflared not found",
+    zh: "未找到 cloudflared",
+  },
+  web_tunnel_install: {
+    en: "Install cloudflared automatically?",
+    zh: "自动安装 cloudflared?",
+  },
+  web_tunnel_installing: {
+    en: "Installing cloudflared...",
+    zh: "正在安装 cloudflared...",
+  },
+  web_tunnel_install_ok: {
+    en: "cloudflared installed successfully",
+    zh: "cloudflared 安装成功",
+  },
+  web_tunnel_install_fail: {
     en:
-      "cloudflared not found. Install it before using tunnel:\n" +
+      "cloudflared installation failed. Please install manually:\n" +
       "  macOS: brew install cloudflared\n" +
       "  Other: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/",
     zh:
-      "未找到 cloudflared。使用 Tunnel 前请先安装:\n" +
+      "cloudflared 安装失败，请手动安装:\n" +
       "  macOS: brew install cloudflared\n" +
       "  其他系统: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/",
   },

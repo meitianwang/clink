@@ -137,13 +137,33 @@ async function collectWebConfig(): Promise<Record<string, unknown>> {
     p.log.info(t("web_token_generated", { token }));
   }
 
-  // If tunnel enabled, check cloudflared
+  // If tunnel enabled, ensure cloudflared is installed
   if (result.tunnel) {
-    const hasCloudflared = which("cloudflared") !== null;
-    if (hasCloudflared) {
+    if (which("cloudflared") !== null) {
       p.log.success(t("web_tunnel_found"));
     } else {
       p.log.warn(t("web_tunnel_not_found"));
+      const installCmd = process.platform === "darwin"
+        ? "brew install cloudflared"
+        : process.platform === "linux"
+          ? "curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared"
+          : null;
+      if (installCmd) {
+        const doInstall = await p.confirm({
+          message: t("web_tunnel_install"),
+          initialValue: true,
+        });
+        if (!p.isCancel(doInstall) && doInstall) {
+          const s = p.spinner();
+          s.start(t("web_tunnel_installing"));
+          try {
+            execSync(installCmd, { stdio: "pipe", timeout: 120_000 });
+            s.stop(pc.green(t("web_tunnel_install_ok")));
+          } catch {
+            s.stop(pc.red(t("web_tunnel_install_fail")));
+          }
+        }
+      }
     }
   }
 
