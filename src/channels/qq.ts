@@ -10,6 +10,10 @@ import { join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { Channel, type Handler } from "./base.js";
 import { loadQQBotConfig } from "../config.js";
+import { chunkText } from "../chunk.js";
+
+// QQ Bot text message character limit (conservative, platform may allow more)
+const QQ_TEXT_LIMIT = 4000;
 
 // ---------------------------------------------------------------------------
 // Types for qq-group-bot message elements
@@ -246,9 +250,20 @@ export class QQChannel extends Channel {
           console.log("[C2C] Message merged into batch, skipping reply");
           return;
         }
-        console.log(`[C2C] Replying: ${reply.slice(0, 100)}...`);
-        const replyMsg = msgId ? [{ type: "reply", id: msgId }, reply] : reply;
-        await (e.reply as (msg: unknown) => Promise<void>)(replyMsg);
+
+        const chunks = chunkText(reply, QQ_TEXT_LIMIT);
+        console.log(
+          `[C2C] Replying (${chunks.length} chunk(s)): ${reply.slice(0, 100)}...`,
+        );
+
+        const replyFn = e.reply as (msg: unknown) => Promise<void>;
+        for (let i = 0; i < chunks.length; i++) {
+          const msg =
+            i === 0 && msgId
+              ? [{ type: "reply", id: msgId }, chunks[i]]
+              : chunks[i];
+          await replyFn(msg);
+        }
       } catch (err) {
         console.error(`[C2C] Error: ${err}`);
       }
@@ -277,9 +292,20 @@ export class QQChannel extends Channel {
           console.log("[Group] Message merged into batch, skipping reply");
           return;
         }
-        console.log(`[Group] Replying: ${reply.slice(0, 100)}...`);
-        const replyMsg = msgId ? [{ type: "reply", id: msgId }, reply] : reply;
-        await (e.reply as (msg: unknown) => Promise<void>)(replyMsg);
+
+        const chunks = chunkText(reply, QQ_TEXT_LIMIT);
+        console.log(
+          `[Group] Replying (${chunks.length} chunk(s)): ${reply.slice(0, 100)}...`,
+        );
+
+        const replyFn = e.reply as (msg: unknown) => Promise<void>;
+        for (let i = 0; i < chunks.length; i++) {
+          const msg =
+            i === 0 && msgId
+              ? [{ type: "reply", id: msgId }, chunks[i]]
+              : chunks[i];
+          await replyFn(msg);
+        }
       } catch (err) {
         console.error(`[Group] Error: ${err}`);
       }

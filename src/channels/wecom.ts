@@ -16,6 +16,10 @@ import { XMLParser } from "fast-xml-parser";
 import { Channel, type Handler } from "./base.js";
 import { loadWeComConfig } from "../config.js";
 import type { WeComConfig } from "../types.js";
+import { chunkTextByBytes } from "../chunk.js";
+
+// WeCom text message API byte limit (content field, UTF-8)
+const WECOM_TEXT_BYTE_LIMIT = 2048;
 
 // ---------------------------------------------------------------------------
 // Temp file directory for downloaded media
@@ -311,7 +315,13 @@ export class WeComChannel extends Channel {
       return;
     }
 
-    await this.sendText(userId, reply);
+    const chunks = chunkTextByBytes(reply, WECOM_TEXT_BYTE_LIMIT);
+    console.log(
+      `[WeCom] Replying (${chunks.length} chunk(s)): ${reply.slice(0, 100)}...`,
+    );
+    for (const chunk of chunks) {
+      await this.sendText(userId, chunk);
+    }
   }
 
   // ------------------------------------------------------------------
