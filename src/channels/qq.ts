@@ -5,9 +5,6 @@
  */
 
 import { execSync } from "node:child_process";
-import { writeFileSync, mkdirSync } from "node:fs";
-import { join, basename } from "node:path";
-import { tmpdir } from "node:os";
 import { Channel, type Handler } from "./base.js";
 import { loadQQBotConfig } from "../config.js";
 import { chunkText } from "../chunk.js";
@@ -18,6 +15,11 @@ import {
   DEFAULT_RECONNECT,
   type ReconnectConfig,
 } from "../retry.js";
+import {
+  type InboundMessage,
+  type MediaFile,
+  downloadFile,
+} from "../message.js";
 
 // QQ Bot text message character limit (conservative, platform may allow more)
 const QQ_TEXT_LIMIT = 4000;
@@ -30,13 +32,6 @@ interface MsgElem {
   type: string;
   [key: string]: unknown;
 }
-
-// ---------------------------------------------------------------------------
-// Temp file directory for downloaded media
-// ---------------------------------------------------------------------------
-
-const TEMP_DIR = join(tmpdir(), "klaus-files");
-mkdirSync(TEMP_DIR, { recursive: true });
 
 // ---------------------------------------------------------------------------
 // Message cache for reply lookups (QQ Bot API v2 has no "get message by ID")
@@ -59,46 +54,27 @@ function getCachedMessage(msgId: string): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// File download helper
+// Build InboundMessage from QQ message elements
 // ---------------------------------------------------------------------------
 
-const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024; // 50 MB
-
-async function downloadFile(rawUrl: string, name?: string): Promise<string> {
-  const url = rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`;
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-  const contentLength = Number(resp.headers.get("content-length") ?? 0);
-  if (contentLength > MAX_DOWNLOAD_SIZE) {
-    throw new Error(`File too large: ${contentLength} bytes`);
-  }
-
-  const buffer = Buffer.from(await resp.arrayBuffer());
-
-  const fallbackExt = url.match(/\.([\w]+)(?:\?|$)/)?.[1] ?? "bin";
-  // Sanitize name: strip path components, add timestamp prefix to avoid collision
-  const safeName = name ? basename(name).replace(/[^\w.\-]/g, "_") : undefined;
-  const filename = safeName
-    ? `${Date.now()}-${safeName}`
-    : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fallbackExt}`;
-  const filepath = join(TEMP_DIR, filename);
-  writeFileSync(filepath, buffer);
-  return filepath;
-}
-
-// ---------------------------------------------------------------------------
-// Build prompt from message elements
-// ---------------------------------------------------------------------------
-
-async function buildPrompt(elements: MsgElem[]): Promise<string> {
-  const parts: string[] = [];
+async function buildInboundMessage(
+  elements: MsgElem[],
+  sessionKey: string,
+  chatType: "private" | "group",
+  senderId: string,
+): Promise<InboundMessage> {
+  const textParts: string[] = [];
+  const media: MediaFile[] = [];
+  const mentions: string[] = [];
+  let replyText: string | undefined;
+  let replyMessageId: string | undefined;
+  let hasReply = false;
 
   for (const elem of elements) {
     switch (elem.type) {
       case "text": {
         const text = (elem.text as string)?.trim();
-        if (text) parts.push(text);
+        if (text) textParts.push(text);
         break;
       }
 
@@ -107,66 +83,59 @@ async function buildPrompt(elements: MsgElem[]): Promise<string> {
         if (!url) break;
         try {
           const path = await downloadFile(url, elem.name as string | undefined);
-          parts.push(`[图片: ${path}，请用 Read 工具查看]`);
+          media.push({ type: "image", path, url });
         } catch (err) {
           console.error(`[QQ] Failed to download image: ${err}`);
-          parts.push("[图片: 下载失败]");
+          media.push({ type: "image", url });
         }
         break;
       }
 
       case "video": {
-        parts.push(
-          "[用户发送了一段视频，但你目前无法观看视频。" +
-            "请友好地告诉用户：视频消息暂不支持，请用文字描述视频内容或截图发送。]",
-        );
+        media.push({ type: "video" });
         break;
       }
 
       case "audio": {
-        parts.push(
-          "[用户发送了一段语音消息，但你目前无法听取语音。" +
-            "请友好地告诉用户：语音消息暂不支持，请将想说的内容打字发送给你。]",
-        );
+        media.push({ type: "audio" });
         break;
       }
 
       case "face": {
         const text = elem.text as string | undefined;
         const id = elem.id as number | undefined;
-        parts.push(text ? `[表情:${text}]` : `[表情:${id}]`);
+        const label = text || (id !== undefined ? String(id) : null);
+        if (label) textParts.push(`[表情:${label}]`);
         break;
       }
 
       case "markdown": {
         const content = (elem.content as string)?.trim();
-        if (content) parts.push(content);
+        if (content) textParts.push(content);
         break;
       }
 
       case "at": {
         const uid = elem.user_id as string;
-        parts.push(uid === "all" ? "[@全体成员]" : `[@用户:${uid}]`);
+        mentions.push(uid === "all" ? "all" : uid);
         break;
       }
 
       case "reply": {
         const refId = (elem.id ?? elem.message_id) as string | undefined;
+        hasReply = true;
         if (refId) {
+          replyMessageId = refId;
           const cached = getCachedMessage(refId);
           if (cached) {
-            const preview =
-              cached.length > 200 ? cached.slice(0, 200) + "..." : cached;
-            parts.push(`[回复消息: "${preview}"]`);
-          } else {
-            parts.push("[回复了一条消息]");
+            replyText = cached;
           }
         }
         break;
       }
 
       default: {
-        // Generic handler for other types with downloadable URL (e.g. application/pdf)
+        // Generic handler for other types with downloadable URL (e.g. PDF)
         const url = elem.url as string | undefined;
         if (url) {
           try {
@@ -174,10 +143,15 @@ async function buildPrompt(elements: MsgElem[]): Promise<string> {
               url,
               elem.name as string | undefined,
             );
-            parts.push(`[文件: ${path}，请用 Read 工具查看]`);
+            media.push({
+              type: "file",
+              path,
+              url,
+              fileName: (elem.name as string) ?? undefined,
+            });
           } catch {
             const name = (elem.name as string) ?? elem.type;
-            parts.push(`[文件 ${name}: 下载失败]`);
+            media.push({ type: "file", fileName: name });
           }
         }
         break;
@@ -185,7 +159,43 @@ async function buildPrompt(elements: MsgElem[]): Promise<string> {
     }
   }
 
-  return parts.join("\n").trim();
+  // Determine message type
+  const hasText = textParts.length > 0;
+  const hasMedia = media.length > 0;
+  let messageType: InboundMessage["messageType"];
+  if (hasText && hasMedia) {
+    messageType = "mixed";
+  } else if (hasMedia) {
+    const first = media[0];
+    messageType =
+      first.type === "image"
+        ? "image"
+        : first.type === "audio"
+          ? "voice"
+          : first.type === "video"
+            ? "video"
+            : "file";
+  } else {
+    messageType = "text";
+  }
+
+  return {
+    sessionKey,
+    text: textParts.join("\n").trim(),
+    messageType,
+    chatType,
+    senderId,
+    ...(media.length > 0 ? { media } : {}),
+    ...(mentions.length > 0 ? { mentions } : {}),
+    ...(hasReply
+      ? {
+          replyTo: {
+            messageId: replyMessageId,
+            text: replyText,
+          },
+        }
+      : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -287,19 +297,42 @@ export class QQChannel extends Channel {
       if (!userId) return;
 
       const elements = e.message as MsgElem[] | undefined;
-      const prompt = elements?.length
-        ? await buildPrompt(elements)
-        : ((e.content as string) ?? (e.raw_message as string) ?? "").trim();
-      if (!prompt) return;
+      const sessionKey = `c2c:${userId}`;
+
+      let msg: InboundMessage;
+      if (elements?.length) {
+        msg = await buildInboundMessage(
+          elements,
+          sessionKey,
+          "private",
+          userId,
+        );
+      } else {
+        const text = (
+          (e.content as string) ??
+          (e.raw_message as string) ??
+          ""
+        ).trim();
+        if (!text) return;
+        msg = {
+          sessionKey,
+          text,
+          messageType: "text",
+          chatType: "private",
+          senderId: userId,
+        };
+      }
+
+      if (!msg.text && !msg.media?.length) return;
 
       const msgId = (e.message_id ?? e.id) as string;
-      if (msgId) cacheMessage(msgId, prompt);
+      if (msgId) cacheMessage(msgId, msg.text || `[${msg.messageType}]`);
 
-      const sessionKey = `c2c:${userId}`;
-      console.log(`[C2C] Received (${sessionKey}): ${prompt.slice(0, 120)}`);
+      const preview = msg.text || `[${msg.messageType}]`;
+      console.log(`[C2C] Received (${sessionKey}): ${preview.slice(0, 120)}`);
 
       try {
-        const reply = await handler(sessionKey, prompt);
+        const reply = await handler(msg);
         if (reply === null) {
           console.log("[C2C] Message merged into batch, skipping reply");
           return;
@@ -316,20 +349,49 @@ export class QQChannel extends Channel {
       const groupId = (e.group_openid ?? e.group_id) as string;
       if (!groupId) return;
 
+      const userId = (e.user_openid ??
+        e.user_id ??
+        e.sender?.toString()) as string;
+
       const elements = e.message as MsgElem[] | undefined;
-      const prompt = elements?.length
-        ? await buildPrompt(elements)
-        : ((e.content as string) ?? (e.raw_message as string) ?? "").trim();
-      if (!prompt) return;
+      const sessionKey = `group:${groupId}`;
+
+      let msg: InboundMessage;
+      if (elements?.length) {
+        msg = await buildInboundMessage(
+          elements,
+          sessionKey,
+          "group",
+          userId || groupId,
+        );
+      } else {
+        const text = (
+          (e.content as string) ??
+          (e.raw_message as string) ??
+          ""
+        ).trim();
+        if (!text) return;
+        msg = {
+          sessionKey,
+          text,
+          messageType: "text",
+          chatType: "group",
+          senderId: userId || groupId,
+        };
+      }
+
+      if (!msg.text && !msg.media?.length) return;
 
       const msgId = (e.message_id ?? e.id) as string;
-      if (msgId) cacheMessage(msgId, prompt);
+      if (msgId) cacheMessage(msgId, msg.text || `[${msg.messageType}]`);
 
-      const sessionKey = `group:${groupId}`;
-      console.log(`[Group] Received (${sessionKey}): ${prompt.slice(0, 120)}`);
+      const preview = msg.text || `[${msg.messageType}]`;
+      console.log(
+        `[Group] Received (${sessionKey}): ${preview.slice(0, 120)}`,
+      );
 
       try {
-        const reply = await handler(sessionKey, prompt);
+        const reply = await handler(msg);
         if (reply === null) {
           console.log("[Group] Message merged into batch, skipping reply");
           return;

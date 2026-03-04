@@ -9,15 +9,20 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createDecipheriv, createHash } from "node:crypto";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join, basename } from "node:path";
-import { tmpdir } from "node:os";
 import { XMLParser } from "fast-xml-parser";
 import { Channel, type Handler } from "./base.js";
 import { loadWeComConfig } from "../config.js";
 import type { WeComConfig } from "../types.js";
 import { chunkTextByBytes } from "../chunk.js";
 import { retryAsync } from "../retry.js";
+import {
+  type InboundMessage,
+  downloadFile,
+  TEMP_DIR,
+  MAX_DOWNLOAD_SIZE,
+} from "../message.js";
 
 // WeCom text message API byte limit (content field, UTF-8)
 const WECOM_TEXT_BYTE_LIMIT = 2048;
@@ -34,44 +39,6 @@ class WeComApiError extends Error {
     super(`WeCom API ${errcode}: ${errmsg}`);
     this.retryable = RETRYABLE_ERRCODES.has(errcode);
   }
-}
-
-// ---------------------------------------------------------------------------
-// Temp file directory for downloaded media
-// ---------------------------------------------------------------------------
-
-const TEMP_DIR = join(tmpdir(), "klaus-files");
-mkdirSync(TEMP_DIR, { recursive: true });
-
-const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024; // 50 MB
-
-// ---------------------------------------------------------------------------
-// File download helper (URL-based, for PicUrl etc.)
-// ---------------------------------------------------------------------------
-
-async function downloadFile(rawUrl: string, name?: string): Promise<string> {
-  const url = rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`;
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-  const contentLength = Number(resp.headers.get("content-length") ?? 0);
-  if (contentLength > MAX_DOWNLOAD_SIZE) {
-    throw new Error(`File too large: ${contentLength} bytes`);
-  }
-
-  const buffer = Buffer.from(await resp.arrayBuffer());
-  if (buffer.byteLength > MAX_DOWNLOAD_SIZE) {
-    throw new Error(`File too large: ${buffer.byteLength} bytes`);
-  }
-
-  const fallbackExt = url.match(/\.([\w]+)(?:\?|$)/)?.[1] ?? "bin";
-  const safeName = name ? basename(name).replace(/[^\w.\-]/g, "_") : undefined;
-  const filename = safeName
-    ? `${Date.now()}-${safeName}`
-    : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fallbackExt}`;
-  const filepath = join(TEMP_DIR, filename);
-  writeFileSync(filepath, buffer);
-  return filepath;
 }
 
 export class WeComChannel extends Channel {
@@ -209,26 +176,35 @@ export class WeComChannel extends Channel {
     msg: Record<string, unknown>,
   ): Promise<void> {
     try {
-      const prompt = await this.buildPrompt(msgType, msg);
-      if (!prompt) return;
-      await this.handleAndReply(fromUser, prompt);
+      const inbound = await this.buildInboundMessage(msgType, msg, fromUser);
+      if (!inbound) return;
+      await this.handleAndReply(inbound);
     } catch (err) {
       console.error("[WeCom] buildAndHandle error:", err);
     }
   }
 
   // ------------------------------------------------------------------
-  // Build prompt from WeCom XML message
+  // Build InboundMessage from WeCom XML message
   // ------------------------------------------------------------------
 
-  private async buildPrompt(
+  private async buildInboundMessage(
     msgType: string,
     msg: Record<string, unknown>,
-  ): Promise<string | null> {
+    userId: string,
+  ): Promise<InboundMessage | null> {
+    const sessionKey = `wecom:${userId}`;
+    const base = {
+      sessionKey,
+      chatType: "private" as const,
+      senderId: userId,
+    };
+
     switch (msgType) {
       case "text": {
         const content = (msg.Content ?? "").toString().trim();
-        return content || null;
+        if (!content) return null;
+        return { ...base, text: content, messageType: "text" };
       }
 
       case "image": {
@@ -236,57 +212,81 @@ export class WeComChannel extends Channel {
         if (!picUrl) return null;
         try {
           const path = await downloadFile(picUrl);
-          return `[图片: ${path}，请用 Read 工具查看]`;
+          return {
+            ...base,
+            text: "",
+            messageType: "image",
+            media: [{ type: "image", path, url: picUrl }],
+          };
         } catch (err) {
           console.error(`[WeCom] Failed to download image: ${err}`);
-          return "[图片: 下载失败]";
+          return {
+            ...base,
+            text: "",
+            messageType: "image",
+            media: [{ type: "image", url: picUrl }],
+          };
         }
       }
 
       case "voice": {
         const recognition = (msg.Recognition ?? "").toString().trim();
-        if (recognition) {
-          return (
-            `[用户发送了一段语音消息，语音识别结果: "${recognition}"]\n` +
-            "请基于语音识别的内容回复用户。"
-          );
-        }
-        return (
-          "[用户发送了一段语音消息，但你目前无法听取语音。" +
-          "请友好地告诉用户：语音消息暂不支持，请将想说的内容打字发送给你。]"
-        );
+        return {
+          ...base,
+          text: "",
+          messageType: "voice",
+          media: [
+            {
+              type: "audio",
+              ...(recognition ? { transcription: recognition } : {}),
+            },
+          ],
+        };
       }
 
       case "video": {
-        return (
-          "[用户发送了一段视频，但你目前无法观看视频。" +
-          "请友好地告诉用户：视频消息暂不支持，请用文字描述视频内容或截图发送。]"
-        );
+        return {
+          ...base,
+          text: "",
+          messageType: "video",
+          media: [{ type: "video" }],
+        };
       }
 
       case "location": {
-        const label = (msg.Label ?? "").toString().trim();
         const lat = parseFloat(String(msg.Location_X ?? ""));
         const lon = parseFloat(String(msg.Location_Y ?? ""));
-        const scale = parseInt(String(msg.Scale ?? ""), 10);
         if (isNaN(lat) || isNaN(lon)) return null;
-        return (
-          "[用户分享了一个位置]\n" +
-          `地点: ${label || "未知"}\n` +
-          `坐标: ${lat}, ${lon}\n` +
-          `缩放: ${isNaN(scale) ? "未知" : scale}`
-        );
+        const label = (msg.Label ?? "").toString().trim();
+        const scale = parseInt(String(msg.Scale ?? ""), 10);
+        return {
+          ...base,
+          text: "",
+          messageType: "location",
+          location: {
+            label: label || undefined,
+            latitude: lat,
+            longitude: lon,
+            ...(isNaN(scale) ? {} : { scale }),
+          },
+        };
       }
 
       case "link": {
         const title = (msg.Title ?? "").toString().trim();
         const description = (msg.Description ?? "").toString().trim();
         const linkUrl = (msg.Url ?? "").toString().trim();
-        const parts: string[] = ["[用户分享了一个链接]"];
-        if (title) parts.push(`标题: ${title}`);
-        if (description) parts.push(`描述: ${description}`);
-        if (linkUrl) parts.push(`链接: ${linkUrl}`);
-        return parts.join("\n");
+        if (!linkUrl) return null;
+        return {
+          ...base,
+          text: "",
+          messageType: "link",
+          link: {
+            ...(title ? { title } : {}),
+            ...(description ? { description } : {}),
+            url: linkUrl,
+          },
+        };
       }
 
       case "file": {
@@ -296,11 +296,26 @@ export class WeComChannel extends Channel {
         try {
           const ext = fileName.match(/\.(\w+)$/)?.[1];
           const path = await this.downloadMedia(mediaId, ext);
-          const displayName = fileName || "未知文件";
-          return `[文件: ${path}，文件名: ${displayName}，请用 Read 工具查看]`;
+          return {
+            ...base,
+            text: "",
+            messageType: "file",
+            media: [
+              {
+                type: "file",
+                path,
+                ...(fileName ? { fileName } : {}),
+              },
+            ],
+          };
         } catch (err) {
           console.error(`[WeCom] Failed to download file: ${err}`);
-          return `[文件 ${fileName || "未知"}: 下载失败]`;
+          return {
+            ...base,
+            text: "",
+            messageType: "file",
+            media: [{ type: "file", fileName: fileName || undefined }],
+          };
         }
       }
 
@@ -314,13 +329,13 @@ export class WeComChannel extends Channel {
     }
   }
 
-  private async handleAndReply(userId: string, content: string): Promise<void> {
+  private async handleAndReply(msg: InboundMessage): Promise<void> {
     if (!this.handler) return;
-    const sessionKey = `wecom:${userId}`;
+    const userId = msg.senderId;
 
     let reply: string | null;
     try {
-      reply = await this.handler(sessionKey, content);
+      reply = await this.handler(msg);
     } catch (err) {
       reply = `[Error] ${err}`;
     }

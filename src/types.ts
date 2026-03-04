@@ -1,8 +1,7 @@
-/** Handler signature: (sessionKey, text) -> reply text (null = message merged, skip reply) */
-export type Handler = (
-  sessionKey: string,
-  text: string,
-) => Promise<string | null>;
+import type { InboundMessage } from "./message.js";
+
+/** Handler signature: receives a structured InboundMessage, returns reply text (null = merged, skip reply). */
+export type Handler = (msg: InboundMessage) => Promise<string | null>;
 
 export interface QQBotConfig {
   readonly appid: string;

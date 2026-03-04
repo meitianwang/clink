@@ -6,6 +6,7 @@ import { getChannelName, CONFIG_FILE, loadSessionConfig } from "./config.js";
 import { ensureConfigValid } from "./config-validate.js";
 import { ChatSessionManager } from "./core.js";
 import { t } from "./i18n.js";
+import { type InboundMessage, formatPrompt } from "./message.js";
 
 // ---------------------------------------------------------------------------
 // Channel registration
@@ -53,15 +54,12 @@ async function start(): Promise<void> {
 
   const sessions = new ChatSessionManager(store, sessionCfg.idleMs);
 
-  const handler = async (
-    sessionKey: string,
-    text: string,
-  ): Promise<string | null> => {
-    const trimmed = text.trim();
+  const handler = async (msg: InboundMessage): Promise<string | null> => {
+    const trimmed = msg.text.trim();
 
     // /new, /reset, /clear — reset conversation
     if (["/new", "/reset", "/clear"].includes(trimmed)) {
-      await sessions.reset(sessionKey);
+      await sessions.reset(msg.sessionKey);
       return t("cmd_reset");
     }
 
@@ -72,9 +70,9 @@ async function start(): Promise<void> {
 
     // /session — show session info
     if (trimmed === "/session") {
-      const info = sessions.getSessionInfo(sessionKey);
+      const info = sessions.getSessionInfo(msg.sessionKey);
       return t("cmd_session_info", {
-        key: sessionKey,
+        key: msg.sessionKey,
         status: info.busy ? t("cmd_session_active") : t("cmd_session_idle"),
         model: info.model ?? t("cmd_default_model"),
       });
@@ -84,7 +82,7 @@ async function start(): Promise<void> {
     if (trimmed === "/model" || trimmed.startsWith("/model ")) {
       const arg = trimmed.slice("/model".length).trim();
       if (!arg) {
-        const current = sessions.getModel(sessionKey);
+        const current = sessions.getModel(msg.sessionKey);
         return t("cmd_model_current", {
           model: current ?? t("cmd_default_model"),
         });
@@ -93,11 +91,13 @@ async function start(): Promise<void> {
       if (!resolved) {
         return t("cmd_model_unknown", { name: arg });
       }
-      sessions.setModel(sessionKey, resolved);
+      sessions.setModel(msg.sessionKey, resolved);
       return t("cmd_model_switched", { model: resolved });
     }
 
-    return sessions.chat(sessionKey, text);
+    const prompt = formatPrompt(msg);
+    if (!prompt) return null;
+    return sessions.chat(msg.sessionKey, prompt);
   };
 
   try {

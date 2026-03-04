@@ -1,0 +1,225 @@
+/**
+ * Standardized inbound message types and formatting.
+ *
+ * Inspired by OpenClaw's MsgContext, simplified for Klaus.
+ * Channels produce InboundMessage objects; formatPrompt() converts them
+ * into text prompts for Claude.
+ */
+
+import { writeFileSync, mkdirSync } from "node:fs";
+import { join, basename } from "node:path";
+import { tmpdir } from "node:os";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type MessageType =
+  | "text"
+  | "image"
+  | "voice"
+  | "video"
+  | "location"
+  | "link"
+  | "file"
+  | "emoji"
+  | "mixed";
+
+export interface MediaFile {
+  readonly type: "image" | "audio" | "video" | "file";
+  readonly path?: string;
+  readonly url?: string;
+  readonly fileName?: string;
+  /** ASR transcription result (voice messages). */
+  readonly transcription?: string;
+}
+
+export interface ReplyContext {
+  readonly messageId?: string;
+  /** Preview of the replied-to message. */
+  readonly text?: string;
+}
+
+export interface LocationInfo {
+  readonly label?: string;
+  readonly latitude: number;
+  readonly longitude: number;
+  readonly scale?: number;
+}
+
+export interface LinkInfo {
+  readonly title?: string;
+  readonly description?: string;
+  readonly url: string;
+}
+
+export interface InboundMessage {
+  readonly sessionKey: string;
+  /** Main text content (empty string when no text). */
+  readonly text: string;
+  readonly messageType: MessageType;
+  readonly chatType: "private" | "group";
+  readonly senderId: string;
+  readonly senderName?: string;
+  readonly media?: readonly MediaFile[];
+  readonly replyTo?: ReplyContext;
+  readonly mentions?: readonly string[];
+  readonly location?: LocationInfo;
+  readonly link?: LinkInfo;
+  readonly emoji?: { readonly id?: number; readonly description?: string };
+  readonly timestamp?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Format prompt: InboundMessage → text string for Claude
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a structured InboundMessage into a text prompt for Claude.
+ * Centralizes the formatting logic previously duplicated in each channel.
+ */
+export function formatPrompt(msg: InboundMessage): string {
+  const parts: string[] = [];
+
+  // Reply context (prepend)
+  if (msg.replyTo?.text) {
+    const preview =
+      msg.replyTo.text.length > 200
+        ? msg.replyTo.text.slice(0, 200) + "..."
+        : msg.replyTo.text;
+    parts.push(`[回复消息: "${preview}"]`);
+  } else if (msg.replyTo) {
+    parts.push("[回复了一条消息]");
+  }
+
+  // Mentions
+  if (msg.mentions?.length) {
+    for (const uid of msg.mentions) {
+      parts.push(uid === "all" ? "[@全体成员]" : `[@用户:${uid}]`);
+    }
+  }
+
+  // Text content
+  if (msg.text) {
+    parts.push(msg.text);
+  }
+
+  // Media files
+  if (msg.media?.length) {
+    for (const file of msg.media) {
+      parts.push(formatMediaFile(file));
+    }
+  }
+
+  // Emoji
+  if (msg.emoji) {
+    const desc = msg.emoji.description ?? msg.emoji.id;
+    if (desc !== undefined && desc !== "") {
+      parts.push(`[表情:${desc}]`);
+    }
+  }
+
+  // Location
+  if (msg.location) {
+    const loc = msg.location;
+    parts.push(
+      "[用户分享了一个位置]\n" +
+        `地点: ${loc.label || "未知"}\n` +
+        `坐标: ${loc.latitude}, ${loc.longitude}` +
+        (loc.scale != null ? `\n缩放: ${loc.scale}` : ""),
+    );
+  }
+
+  // Link
+  if (msg.link) {
+    const linkParts = ["[用户分享了一个链接]"];
+    if (msg.link.title) linkParts.push(`标题: ${msg.link.title}`);
+    if (msg.link.description) linkParts.push(`描述: ${msg.link.description}`);
+    if (msg.link.url) linkParts.push(`链接: ${msg.link.url}`);
+    parts.push(linkParts.join("\n"));
+  }
+
+  return parts.join("\n").trim();
+}
+
+function formatMediaFile(file: MediaFile): string {
+  switch (file.type) {
+    case "image": {
+      if (file.path) {
+        return `[图片: ${file.path}，请用 Read 工具查看]`;
+      }
+      return "[图片: 下载失败]";
+    }
+
+    case "audio": {
+      if (file.transcription) {
+        return (
+          `[用户发送了一段语音消息，语音识别结果: "${file.transcription}"]\n` +
+          "请基于语音识别的内容回复用户。"
+        );
+      }
+      return (
+        "[用户发送了一段语音消息，但你目前无法听取语音。" +
+        "请友好地告诉用户：语音消息暂不支持，请将想说的内容打字发送给你。]"
+      );
+    }
+
+    case "video":
+      return (
+        "[用户发送了一段视频，但你目前无法观看视频。" +
+        "请友好地告诉用户：视频消息暂不支持，请用文字描述视频内容或截图发送。]"
+      );
+
+    case "file": {
+      if (file.path) {
+        const displayName = file.fileName || "未知文件";
+        return `[文件: ${file.path}，文件名: ${displayName}，请用 Read 工具查看]`;
+      }
+      return `[文件 ${file.fileName || "未知"}: 下载失败]`;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared file download utility
+// ---------------------------------------------------------------------------
+
+const TEMP_DIR = join(tmpdir(), "klaus-files");
+mkdirSync(TEMP_DIR, { recursive: true });
+
+const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024; // 50 MB
+
+/**
+ * Download a file from a URL to a temporary local path.
+ * Returns the absolute path to the downloaded file.
+ */
+export async function downloadFile(
+  rawUrl: string,
+  name?: string,
+): Promise<string> {
+  const url = rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`;
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+  const contentLength = Number(resp.headers.get("content-length") ?? 0);
+  if (contentLength > MAX_DOWNLOAD_SIZE) {
+    throw new Error(`File too large: ${contentLength} bytes`);
+  }
+
+  const buffer = Buffer.from(await resp.arrayBuffer());
+  if (buffer.byteLength > MAX_DOWNLOAD_SIZE) {
+    throw new Error(`File too large: ${buffer.byteLength} bytes`);
+  }
+
+  const fallbackExt = url.match(/\.([\w]+)(?:\?|$)/)?.[1] ?? "bin";
+  const safeName = name ? basename(name).replace(/[^\w.\-]/g, "_") : undefined;
+  const filename = safeName
+    ? `${Date.now()}-${safeName}`
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fallbackExt}`;
+  const filepath = join(TEMP_DIR, filename);
+  writeFileSync(filepath, buffer);
+  return filepath;
+}
+
+/** The shared temp directory for downloaded files. */
+export { TEMP_DIR, MAX_DOWNLOAD_SIZE };

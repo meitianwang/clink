@@ -149,12 +149,13 @@ File: ~/.klaus/config.yaml
 ## 工作原理
 
 ```
-用户消息 → 通道 (QQ/WeCom) → 会话管理器 → ClaudeChat → Claude Code SDK
-                                    ↑
-                               LRU 淘汰
-                            (最多 20 个会话)
+用户消息 → 通道 (QQ/WeCom) → InboundMessage → formatPrompt() → 会话管理器 → ClaudeChat → Claude Code SDK
+                                    ↑                                 ↑
+                            结构化消息提取                        LRU 淘汰
+                          (图片/文件/语音等)                   (最多 20 个会话)
 ```
 
+- **结构化消息**：通道将平台消息解析为统一的 `InboundMessage` 结构（文本、图片、文件、语音、位置、链接等），`formatPrompt()` 集中转换为 Claude 可理解的文本提示词。
 - **Collect 模式**：Claude 处理中时，后续消息自动排队并合并为一条 prompt，处理完毕后一并发送。
 - **LRU 会话管理**：最多维持 20 个并发会话，空闲最久的会话优先淘汰。
 - **富媒体解析**：图片和文件下载到临时目录，以文件路径传递给 Claude，Claude 通过 Read 工具直接查看图片和 PDF 内容。
