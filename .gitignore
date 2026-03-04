@@ -2,6 +2,7 @@ node_modules/
 dist/
 *.tsbuildinfo
 .DS_Store
+.claude/
 openclaw/
 release.sh
 OPENCLAW-ANALYSIS.md
