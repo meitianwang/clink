@@ -126,6 +126,9 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 .tool-item.error .tool-value { color: #ef4444; }
 .tool-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--thinking); animation: pulse 1.4s ease-in-out infinite; flex-shrink: 0; }
 @keyframes pulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
+.msg.streaming { white-space: pre-wrap; }
+.msg.streaming .cursor { display: inline-block; width: 2px; height: 1em; background: var(--thinking); animation: blink 0.8s step-end infinite; vertical-align: text-bottom; margin-left: 1px; }
+@keyframes blink { 50% { opacity: 0; } }
 </style>
 </head>
 <body>
@@ -183,11 +186,15 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     const data = JSON.parse(e.data);
     if (data.type === "ping") return;
     if (data.type === "tool") { handleToolEvent(data.data); return; }
-    removeThinking();
-    clearToolContainer();
-    if (data.type === "message") { appendMsg("assistant", data.text); busy = false; updateBtn(); }
-    else if (data.type === "merged") { busy = false; updateBtn(); }
-    else if (data.type === "error") { appendErrorMsg(data.message); busy = false; updateBtn(); }
+    if (data.type === "stream") { handleStreamChunk(data.chunk); return; }
+    if (!isStreaming) { removeThinking(); clearToolContainer(); }
+    if (data.type === "message") {
+      if (isStreaming) { finalizeStreamingMessage(data.text); }
+      else { appendMsg("assistant", data.text); }
+      busy = false; updateBtn();
+    }
+    else if (data.type === "merged") { if (isStreaming) { finalizeStreamingMessage(""); } busy = false; updateBtn(); }
+    else if (data.type === "error") { if (isStreaming) { finalizeStreamingMessage(""); } appendErrorMsg(data.message); busy = false; updateBtn(); }
   };
 
   attachBtn.addEventListener("click", () => fileInput.click());
@@ -439,6 +446,65 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
         activeTools.delete(te.toolUseId);
       }
     }
+  }
+
+  let streamBuffer = "";
+  let streamTimer = null;
+  let isStreaming = false;
+
+  function handleStreamChunk(chunk) {
+    if (!isStreaming) {
+      removeThinking();
+      clearToolContainer();
+      createStreamingMessage();
+      isStreaming = true;
+    }
+    streamBuffer += chunk;
+    if (!streamTimer) {
+      streamTimer = setTimeout(flushStreamBuffer, 100);
+    }
+  }
+
+  function flushStreamBuffer() {
+    streamTimer = null;
+    if (!streamBuffer) return;
+    const el = document.getElementById("streaming-msg");
+    if (!el) return;
+    const msgEl = el.querySelector(".msg");
+    const cursor = msgEl.querySelector(".cursor");
+    msgEl.insertBefore(document.createTextNode(streamBuffer), cursor);
+    streamBuffer = "";
+    scrollBottom();
+  }
+
+  function createStreamingMessage() {
+    const wrap = document.createElement("div");
+    wrap.className = "msg-container assistant";
+    wrap.id = "streaming-msg";
+    wrap.innerHTML = '<div class="avatar">K</div><div class="msg assistant streaming"><span class="cursor"></span></div>';
+    msgs.appendChild(wrap);
+    scrollBottom();
+  }
+
+  function finalizeStreamingMessage(fullText) {
+    if (streamTimer) { clearTimeout(streamTimer); streamTimer = null; }
+    if (streamBuffer) { flushStreamBuffer(); }
+    streamBuffer = "";
+    isStreaming = false;
+    const el = document.getElementById("streaming-msg");
+    if (el) {
+      if (fullText) {
+        const msgEl = el.querySelector(".msg");
+        if (msgEl) { msgEl.className = "msg assistant"; msgEl.innerHTML = renderMd(fullText); }
+      } else {
+        const cursor = el.querySelector(".cursor");
+        if (cursor) cursor.remove();
+        const msgEl = el.querySelector(".msg");
+        if (msgEl) msgEl.classList.remove("streaming");
+      }
+      el.removeAttribute("id");
+    }
+    scrollBottom();
   }
 
   function appendUserMsg(text, imageUrls, fileNames) {

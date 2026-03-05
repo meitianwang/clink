@@ -18,7 +18,11 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ChannelPlugin } from "./types.js";
-import type { Handler, ToolEventCallback } from "../types.js";
+import type {
+  Handler,
+  ToolEventCallback,
+  StreamChunkCallback,
+} from "../types.js";
 import type { WebConfig } from "../types.js";
 import { loadWebConfig } from "../config.js";
 import type { InboundMessage, MediaFile } from "../message.js";
@@ -43,6 +47,7 @@ const sseClients = new Map<string, Set<ServerResponse>>();
 
 type SseEvent =
   | { readonly type: "message"; readonly text: string; readonly id: string }
+  | { readonly type: "stream"; readonly chunk: string }
   | { readonly type: "merged" }
   | { readonly type: "error"; readonly message: string }
   | { readonly type: "ping" }
@@ -285,8 +290,17 @@ async function handleMessage(
     }
   };
 
+  // Stream text chunks to the client via SSE
+  const onStreamChunk: StreamChunkCallback = (chunk) => {
+    try {
+      sendSseEvent(token, { type: "stream", chunk });
+    } catch (err) {
+      console.error("[Web] Failed to send stream chunk:", err);
+    }
+  };
+
   try {
-    const reply = await handler(msg, onToolEvent);
+    const reply = await handler(msg, onToolEvent, onStreamChunk);
     if (reply === null) {
       console.log("[Web] Message merged into batch, skipping reply");
       sendSseEvent(token, { type: "merged" });

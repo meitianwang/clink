@@ -8,7 +8,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { loadConfig } from "./config.js";
 import type { SessionStore, PersistedSession } from "./session-store.js";
-import type { ToolEventCallback } from "./types.js";
+import type { ToolEventCallback, StreamChunkCallback } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -85,14 +85,15 @@ export class ClaudeChat {
   private async doChat(
     prompt: string,
     onToolEvent?: ToolEventCallback,
+    onStreamChunk?: StreamChunkCallback,
   ): Promise<string> {
     try {
-      return await this.doChatInner(prompt, onToolEvent);
+      return await this.doChatInner(prompt, onToolEvent, onStreamChunk);
     } catch (err) {
       if (this.sessionId && isSessionExpiredError(err)) {
         console.log("[Chat] Session expired, starting fresh session");
         this.sessionId = undefined;
-        return await this.doChatInner(prompt, onToolEvent);
+        return await this.doChatInner(prompt, onToolEvent, onStreamChunk);
       }
       throw err;
     }
@@ -101,6 +102,7 @@ export class ClaudeChat {
   private async doChatInner(
     prompt: string,
     onToolEvent?: ToolEventCallback,
+    onStreamChunk?: StreamChunkCallback,
   ): Promise<string> {
     let resultText: string | undefined;
     let lastSessionId: string | undefined;
@@ -112,6 +114,7 @@ export class ClaudeChat {
         permissionMode: "bypassPermissions",
         ...(this.model ? { model: this.model } : {}),
         ...(this.sessionId ? { resume: this.sessionId } : {}),
+        ...(onStreamChunk ? { includePartialMessages: true } : {}),
       },
     });
 
@@ -126,6 +129,11 @@ export class ClaudeChat {
       // Extract tool use events for Web channel visualization
       if (onToolEvent) {
         this.emitToolEvents(msg, onToolEvent);
+      }
+
+      // Extract streaming text deltas
+      if (msg.type === "stream_event" && onStreamChunk) {
+        this.emitStreamChunk(msg, onStreamChunk);
       }
     }
 
@@ -201,6 +209,21 @@ export class ClaudeChat {
     }
   }
 
+  private emitStreamChunk(
+    msg: { type: string; [key: string]: unknown },
+    onStreamChunk: StreamChunkCallback,
+  ): void {
+    // SDKPartialAssistantMessage: stream_event with content_block_delta
+    const event = msg.event as Record<string, unknown> | undefined;
+    if (!event || event.type !== "content_block_delta") return;
+    // Only emit top-level text (not sub-agent streams)
+    if (typeof msg.parent_tool_use_id === "string") return;
+    const delta = event.delta as Record<string, unknown> | undefined;
+    if (delta?.type === "text_delta" && typeof delta.text === "string") {
+      onStreamChunk(delta.text);
+    }
+  }
+
   /**
    * Send a message, return the full text reply.
    *
@@ -210,6 +233,7 @@ export class ClaudeChat {
   async chat(
     prompt: string,
     onToolEvent?: ToolEventCallback,
+    onStreamChunk?: StreamChunkCallback,
   ): Promise<string | null> {
     if (this.busy) {
       const deferred = createDeferred<string | null>();
@@ -222,7 +246,7 @@ export class ClaudeChat {
 
     this.busy = true;
     try {
-      let reply = await this.doChat(prompt, onToolEvent);
+      let reply = await this.doChat(prompt, onToolEvent, onStreamChunk);
 
       // Drain queued messages (collect mode)
       while (this.pending.length > 0) {
@@ -245,7 +269,7 @@ export class ClaudeChat {
         // Process the merged message; ensure last caller's deferred
         // is always resolved even if doChat throws.
         try {
-          reply = await this.doChat(merged, onToolEvent);
+          reply = await this.doChat(merged, onToolEvent, onStreamChunk);
           batch[batch.length - 1].deferred.resolve(reply);
         } catch (e) {
           batch[batch.length - 1].deferred.resolve(null);
@@ -372,10 +396,11 @@ export class ChatSessionManager {
     sessionKey: string,
     prompt: string,
     onToolEvent?: ToolEventCallback,
+    onStreamChunk?: StreamChunkCallback,
   ): Promise<string | null> {
     await this.evictIfNeeded();
     const session = this.getSession(sessionKey);
-    const result = await session.chat(prompt, onToolEvent);
+    const result = await session.chat(prompt, onToolEvent, onStreamChunk);
 
     // Persist after successful chat (fire-and-forget)
     if (result !== null) {

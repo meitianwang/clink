@@ -8,7 +8,7 @@ import { ensureConfigValid } from "./config-validate.js";
 import { ChatSessionManager } from "./core.js";
 import { t } from "./i18n.js";
 import { type InboundMessage, formatPrompt } from "./message.js";
-import type { ToolEventCallback } from "./types.js";
+import type { ToolEventCallback, StreamChunkCallback } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Channel registration
@@ -60,6 +60,7 @@ async function start(): Promise<void> {
   const handler = async (
     msg: InboundMessage,
     onToolEvent?: ToolEventCallback,
+    onStreamChunk?: StreamChunkCallback,
   ): Promise<string | null> => {
     const trimmed = msg.text.trim();
 
@@ -103,7 +104,7 @@ async function start(): Promise<void> {
 
     const prompt = formatPrompt(msg);
     if (!prompt) return null;
-    return sessions.chat(msg.sessionKey, prompt, onToolEvent);
+    return sessions.chat(msg.sessionKey, prompt, onToolEvent, onStreamChunk);
   };
 
   try {

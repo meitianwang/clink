@@ -4,10 +4,14 @@ import type { ToolEvent } from "./tool-config.js";
 /** Callback invoked when Claude uses a tool (optional, used by Web channel). */
 export type ToolEventCallback = (event: ToolEvent) => void;
 
+/** Callback for streaming text chunks (optional, used by Web channel). */
+export type StreamChunkCallback = (chunk: string) => void;
+
 /** Handler signature: receives a structured InboundMessage, returns reply text (null = merged, skip reply). */
 export type Handler = (
   msg: InboundMessage,
   onToolEvent?: ToolEventCallback,
+  onStreamChunk?: StreamChunkCallback,
 ) => Promise<string | null>;
 
 export interface QQBotConfig {
