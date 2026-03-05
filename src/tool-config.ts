@@ -2,7 +2,7 @@
  * Tool configuration registry for Web channel visualization.
  *
  * Declarative configs drive how each Claude tool is displayed in the
- * browser chat UI.  `formatToolEventForSse()` pre-formats events on
+ * browser chat UI.  `formatToolEvent()` pre-formats events on
  * the server so the HTML client only needs to render, not compute.
  */
 
@@ -72,16 +72,14 @@ const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
     label: "Searching",
     style: "search",
     getValue: (input) => String(input.pattern ?? ""),
-    getSecondary: (input) =>
-      input.path ? `in ${input.path}` : undefined,
+    getSecondary: (input) => (input.path ? `in ${input.path}` : undefined),
   },
   Glob: {
     icon: "search",
     label: "Finding files",
     style: "search",
     getValue: (input) => String(input.pattern ?? ""),
-    getSecondary: (input) =>
-      input.path ? `in ${input.path}` : undefined,
+    getSecondary: (input) => (input.path ? `in ${input.path}` : undefined),
   },
   WebSearch: {
     icon: "globe",
@@ -129,10 +127,10 @@ export function getToolConfig(toolName: string): ToolDisplayConfig {
 }
 
 // ---------------------------------------------------------------------------
-// SSE payload — pre-formatted for the HTML client
+// Tool payload — pre-formatted for the HTML client
 // ---------------------------------------------------------------------------
 
-export interface SseToolPayload {
+export interface ToolPayload {
   readonly type: "tool_start" | "tool_result";
   readonly toolUseId: string;
   readonly toolName: string;
@@ -147,7 +145,7 @@ export interface SseToolPayload {
   readonly isError?: boolean;
 }
 
-export function formatToolEventForSse(event: ToolEvent): SseToolPayload {
+export function formatToolEvent(event: ToolEvent): ToolPayload {
   const config = getToolConfig(event.toolName);
   const input = event.input ?? {};
   return {
@@ -160,9 +158,7 @@ export function formatToolEventForSse(event: ToolEvent): SseToolPayload {
       label: config.label,
       style: config.style,
       value: config.getValue(input),
-      ...(config.getSecondary
-        ? { secondary: config.getSecondary(input) }
-        : {}),
+      ...(config.getSecondary ? { secondary: config.getSecondary(input) } : {}),
     },
     ...(event.isError !== undefined ? { isError: event.isError } : {}),
   };

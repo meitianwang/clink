@@ -1,10 +1,10 @@
 /**
- * Web channel — browser-based chat UI with SSE for real-time replies.
+ * Web channel — browser-based chat UI with WebSocket for real-time bidirectional communication.
  *
  * Routes:
  *   GET  /              → Chat UI HTML (requires ?token)
- *   GET  /api/events    → SSE stream (requires ?token)
- *   POST /api/message   → Send user message (token in JSON body)
+ *   WS   /api/ws        → WebSocket connection (requires ?token, validated during upgrade)
+ *   POST /api/upload    → File upload (token in query string)
  *   GET  /api/health    → Health check (no auth)
  */
 
@@ -17,6 +17,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { WebSocketServer, WebSocket, type RawData } from "ws";
 import type { ChannelPlugin } from "./types.js";
 import type {
   Handler,
@@ -30,7 +31,7 @@ import { loadWebConfig } from "../config.js";
 import type { InboundMessage, MediaFile } from "../message.js";
 import { getChatHtml } from "./web-ui.js";
 import { startTunnel } from "./web-tunnel.js";
-import { formatToolEventForSse, type SseToolPayload } from "../tool-config.js";
+import { formatToolEvent, type ToolPayload } from "../tool-config.js";
 
 // ---------------------------------------------------------------------------
 // File upload storage
@@ -42,46 +43,74 @@ mkdirSync(UPLOAD_DIR, { recursive: true });
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10 MB
 
 // ---------------------------------------------------------------------------
-// SSE client management
+// WebSocket client management
 // ---------------------------------------------------------------------------
 
-const sseClients = new Map<string, Set<ServerResponse>>();
+interface KlausWebSocket extends WebSocket {
+  isAlive: boolean;
+  klausToken: string;
+  klausIp: string;
+}
 
-type SseEvent =
-  | { readonly type: "message"; readonly text: string; readonly id: string }
-  | { readonly type: "stream"; readonly chunk: string }
-  | { readonly type: "merged" }
-  | { readonly type: "error"; readonly message: string }
+const wsClients = new Map<string, Set<KlausWebSocket>>();
+
+type WsEvent =
+  | {
+      readonly type: "message";
+      readonly text: string;
+      readonly id: string;
+      readonly sessionId?: string;
+    }
+  | {
+      readonly type: "stream";
+      readonly chunk: string;
+      readonly sessionId?: string;
+    }
+  | { readonly type: "merged"; readonly sessionId?: string }
+  | {
+      readonly type: "error";
+      readonly message: string;
+      readonly sessionId?: string;
+    }
   | { readonly type: "ping" }
-  | { readonly type: "tool"; readonly data: SseToolPayload }
-  | { readonly type: "permission"; readonly data: PermissionRequest };
+  | {
+      readonly type: "tool";
+      readonly data: ToolPayload;
+      readonly sessionId?: string;
+    }
+  | {
+      readonly type: "permission";
+      readonly data: PermissionRequest;
+      readonly sessionId?: string;
+    };
 
-function addSseClient(token: string, res: ServerResponse): void {
-  let clients = sseClients.get(token);
+function addWsClient(token: string, ws: KlausWebSocket): void {
+  let clients = wsClients.get(token);
   if (!clients) {
     clients = new Set();
-    sseClients.set(token, clients);
+    wsClients.set(token, clients);
   }
-  clients.add(res);
+  clients.add(ws);
 }
 
-function removeSseClient(token: string, res: ServerResponse): void {
-  const clients = sseClients.get(token);
+function removeWsClient(token: string, ws: KlausWebSocket): void {
+  const clients = wsClients.get(token);
   if (!clients) return;
-  clients.delete(res);
-  if (clients.size === 0) sseClients.delete(token);
+  clients.delete(ws);
+  if (clients.size === 0) wsClients.delete(token);
 }
 
-function sendSseEvent(token: string, event: SseEvent): void {
-  const clients = sseClients.get(token);
+function sendWsEvent(token: string, event: WsEvent): void {
+  const clients = wsClients.get(token);
   if (!clients) return;
   const data = JSON.stringify(event);
-  for (const res of clients) {
-    try {
-      const ok = res.write(`data: ${data}\n\n`);
-      if (!ok) removeSseClient(token, res);
-    } catch {
-      removeSseClient(token, res);
+  for (const ws of [...clients]) {
+    if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.send(data);
+      } catch {
+        removeWsClient(token, ws);
+      }
     }
   }
 }
@@ -190,76 +219,20 @@ function serveHtml(url: URL, res: ServerResponse, cfg: WebConfig): void {
   res.end(getChatHtml());
 }
 
-function handleSse(
-  req: IncomingMessage,
-  url: URL,
-  res: ServerResponse,
-  cfg: WebConfig,
-): void {
-  const token = url.searchParams.get("token") ?? "";
-  if (!validateToken(token, cfg.token)) {
-    res.writeHead(401);
-    res.end("unauthorized");
-    return;
-  }
+// ---------------------------------------------------------------------------
+// Message processing (shared by WebSocket handler)
+// ---------------------------------------------------------------------------
 
-  res.writeHead(200, {
-    "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive",
-    "X-Accel-Buffering": "no",
-  });
-  res.write("\n"); // initial flush
-
-  addSseClient(token, res);
-
-  req.on("close", () => {
-    removeSseClient(token, res);
-  });
-}
-
-async function handleMessage(
-  req: IncomingMessage,
-  res: ServerResponse,
+async function processUserMessage(
+  token: string,
+  text: string,
+  fileIds: string[],
+  sessionId: string,
   handler: Handler,
   cfg: WebConfig,
 ): Promise<void> {
-  // Rate limiting
-  const ip = getClientIp(req);
-  if (!checkRateLimit(ip)) {
-    jsonResponse(res, 429, { error: "too many requests" });
-    return;
-  }
-
-  const body = await readBody(req);
-  let parsed: { token?: string; text?: string; files?: string[] };
-  try {
-    parsed = JSON.parse(body.toString("utf-8")) as {
-      token?: string;
-      text?: string;
-      files?: string[];
-    };
-  } catch {
-    jsonResponse(res, 400, { error: "invalid JSON" });
-    return;
-  }
-
-  const token = parsed.token ?? "";
-  if (!validateToken(token, cfg.token)) {
-    jsonResponse(res, 401, { error: "unauthorized" });
-    return;
-  }
-
-  const text = (parsed.text ?? "").trim();
-  const fileIds = parsed.files ?? [];
-
-  if (!text && fileIds.length === 0) {
-    jsonResponse(res, 400, { error: "empty message" });
-    return;
-  }
-
-  // Respond immediately (async processing, same as wecom.ts pattern)
-  jsonResponse(res, 200, { ok: true });
+  const trimmedText = text.trim();
+  if (!trimmedText && fileIds.length === 0) return;
 
   // Build media list from uploaded file IDs
   const media: MediaFile[] = [];
@@ -274,10 +247,10 @@ async function handleMessage(
     uploadedFiles.delete(fileId);
   }
 
-  const sessionKey = `web:${token}`;
+  const sessionKey = `web:${token}:${sessionId}`;
   const hasMedia = media.length > 0;
   const messageType =
-    hasMedia && text
+    hasMedia && trimmedText
       ? "mixed"
       : hasMedia
         ? media[0].type === "image"
@@ -286,7 +259,7 @@ async function handleMessage(
         : "text";
   const msg: InboundMessage = {
     sessionKey,
-    text,
+    text: trimmedText,
     messageType,
     chatType: "private",
     senderId: token,
@@ -295,22 +268,26 @@ async function handleMessage(
 
   const mediaLabel = hasMedia ? ` +${media.length} file(s)` : "";
   console.log(
-    `[Web] Received (web:${tokenLabel(token)}): ${text.slice(0, 120)}${mediaLabel}`,
+    `[Web] Received (web:${tokenLabel(token)}): ${trimmedText.slice(0, 120)}${mediaLabel}`,
   );
 
-  // Stream tool events to the client via SSE (errors must not interrupt the main response)
+  // Stream tool events to the client via WebSocket
   const onToolEvent: ToolEventCallback = (event) => {
     try {
-      sendSseEvent(token, { type: "tool", data: formatToolEventForSse(event) });
+      sendWsEvent(token, {
+        type: "tool",
+        data: formatToolEvent(event),
+        sessionId,
+      });
     } catch (err) {
       console.error("[Web] Failed to send tool event:", err);
     }
   };
 
-  // Stream text chunks to the client via SSE
+  // Stream text chunks to the client via WebSocket
   const onStreamChunk: StreamChunkCallback = (chunk) => {
     try {
-      sendSseEvent(token, { type: "stream", chunk });
+      sendWsEvent(token, { type: "stream", chunk, sessionId });
     } catch (err) {
       console.error("[Web] Failed to send stream chunk:", err);
     }
@@ -329,7 +306,11 @@ async function handleMessage(
               resolve({ allow: false });
             }, PERMISSION_TIMEOUT_MS);
             pendingPermissions.set(request.requestId, { resolve, timer });
-            sendSseEvent(token, { type: "permission", data: request });
+            sendWsEvent(token, {
+              type: "permission",
+              data: request,
+              sessionId,
+            });
           });
         }
       : undefined;
@@ -343,69 +324,95 @@ async function handleMessage(
     );
     if (reply === null) {
       console.log("[Web] Message merged into batch, skipping reply");
-      sendSseEvent(token, { type: "merged" });
+      sendWsEvent(token, { type: "merged", sessionId });
       return;
     }
 
     console.log(`[Web] Replying: ${reply.slice(0, 100)}...`);
-    sendSseEvent(token, {
+    sendWsEvent(token, {
       type: "message",
       text: reply,
       id: Date.now().toString(36),
+      sessionId,
     });
   } catch (err) {
     console.error("[Web] Handler error:", err);
-    sendSseEvent(token, {
+    sendWsEvent(token, {
       type: "error",
       message: "An internal error occurred. Please try again.",
+      sessionId,
     });
   }
 }
 
 // ---------------------------------------------------------------------------
-// Permission response handler
+// WebSocket message handler
 // ---------------------------------------------------------------------------
 
-async function handlePermission(
-  req: IncomingMessage,
-  res: ServerResponse,
+type ClientWsMessage =
+  | { type: "message"; text?: string; sessionId?: string; files?: string[] }
+  | { type: "permission"; requestId: string; allow: boolean }
+  | { type: "pong" };
+
+function handleWsMessage(
+  ws: KlausWebSocket,
+  raw: RawData,
+  handler: Handler,
   cfg: WebConfig,
-): Promise<void> {
-  const ip = getClientIp(req);
-  if (!checkRateLimit(ip)) {
-    jsonResponse(res, 429, { error: "too many requests" });
-    return;
-  }
-
-  const body = await readBody(req);
-  let parsed: { token?: string; requestId?: string; allow?: boolean };
+): void {
+  let parsed: ClientWsMessage;
   try {
-    parsed = JSON.parse(body.toString("utf-8")) as {
-      token?: string;
-      requestId?: string;
-      allow?: boolean;
-    };
+    parsed = JSON.parse(raw.toString()) as ClientWsMessage;
   } catch {
-    jsonResponse(res, 400, { error: "invalid JSON" });
+    ws.send(JSON.stringify({ type: "error", message: "invalid JSON" }));
     return;
   }
 
-  if (!validateToken(parsed.token ?? "", cfg.token)) {
-    jsonResponse(res, 401, { error: "unauthorized" });
-    return;
-  }
+  const token = ws.klausToken;
+  const ip = ws.klausIp;
 
-  const requestId = parsed.requestId ?? "";
-  const pending = pendingPermissions.get(requestId);
-  if (!pending) {
-    jsonResponse(res, 404, { error: "no pending request" });
-    return;
+  switch (parsed.type) {
+    case "message": {
+      if (!checkRateLimit(ip)) {
+        ws.send(
+          JSON.stringify({ type: "error", message: "too many requests" }),
+        );
+        return;
+      }
+      processUserMessage(
+        token,
+        parsed.text ?? "",
+        parsed.files ?? [],
+        parsed.sessionId ?? "default",
+        handler,
+        cfg,
+      ).catch((err) => {
+        console.error("[Web] processUserMessage error:", err);
+      });
+      break;
+    }
+    case "permission": {
+      if (!checkRateLimit(ip)) {
+        ws.send(
+          JSON.stringify({ type: "error", message: "too many requests" }),
+        );
+        return;
+      }
+      const requestId = parsed.requestId ?? "";
+      const pending = pendingPermissions.get(requestId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        pendingPermissions.delete(requestId);
+        pending.resolve({ allow: Boolean(parsed.allow) });
+      }
+      break;
+    }
+    case "pong":
+      // Client heartbeat reply, no action needed
+      break;
+    default:
+      break;
   }
-
-  clearTimeout(pending.timer);
-  pendingPermissions.delete(requestId);
-  pending.resolve({ allow: Boolean(parsed.allow) });
-  jsonResponse(res, 200, { ok: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -499,13 +506,12 @@ async function handleUpload(
 }
 
 // ---------------------------------------------------------------------------
-// Request router
+// Request router (HTTP-only routes)
 // ---------------------------------------------------------------------------
 
 async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  handler: Handler,
   cfg: WebConfig,
 ): Promise<void> {
   if (req.method === "OPTIONS") {
@@ -519,20 +525,6 @@ async function handleRequest(
   switch (url.pathname) {
     case "/":
       return serveHtml(url, res, cfg);
-    case "/api/events":
-      return handleSse(req, url, res, cfg);
-    case "/api/message":
-      if (req.method !== "POST") {
-        jsonResponse(res, 405, { error: "method not allowed" });
-        return;
-      }
-      return handleMessage(req, res, handler, cfg);
-    case "/api/permission":
-      if (req.method !== "POST") {
-        jsonResponse(res, 405, { error: "method not allowed" });
-        return;
-      }
-      return handlePermission(req, res, cfg);
     case "/api/upload":
       if (req.method !== "POST") {
         jsonResponse(res, 405, { error: "method not allowed" });
@@ -567,7 +559,7 @@ export const webPlugin: ChannelPlugin = {
     const cfg = loadWebConfig();
 
     const server = createServer((req, res) => {
-      handleRequest(req, res, handler, cfg).catch((err) => {
+      handleRequest(req, res, cfg).catch((err) => {
         console.error("[Web] Request error:", err);
         if (!res.headersSent) {
           res.writeHead(500);
@@ -576,6 +568,60 @@ export const webPlugin: ChannelPlugin = {
       });
     });
 
+    // WebSocket server (noServer mode — manual upgrade handling)
+    const wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
+
+    server.on("upgrade", (req, socket, head) => {
+      const url = new URL(req.url ?? "/", `http://localhost:${cfg.port}`);
+      if (url.pathname !== "/api/ws") {
+        socket.destroy();
+        return;
+      }
+      const token = url.searchParams.get("token") ?? "";
+      if (!validateToken(token, cfg.token)) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit("connection", ws, req, token);
+      });
+    });
+
+    wss.on(
+      "connection",
+      (rawWs: WebSocket, req: IncomingMessage, token: string) => {
+        const ws = rawWs as KlausWebSocket;
+        ws.isAlive = true;
+        ws.klausToken = token;
+        ws.klausIp = getClientIp(req);
+
+        addWsClient(token, ws);
+        console.log(`[Web] WebSocket connected: ${tokenLabel(token)}`);
+
+        ws.on("pong", () => {
+          ws.isAlive = true;
+        });
+
+        ws.on("message", (raw: RawData) => {
+          handleWsMessage(ws, raw, handler, cfg);
+        });
+
+        ws.on("close", () => {
+          removeWsClient(token, ws);
+          console.log(`[Web] WebSocket disconnected: ${tokenLabel(token)}`);
+        });
+
+        ws.on("error", (err) => {
+          console.error(
+            `[Web] WebSocket error (${tokenLabel(token)}):`,
+            err.message,
+          );
+          removeWsClient(token, ws);
+        });
+      },
+    );
+
     server.listen(cfg.port, "0.0.0.0", () => {
       console.log(
         `Klaus Web channel listening on http://localhost:${cfg.port}`,
@@ -583,19 +629,33 @@ export const webPlugin: ChannelPlugin = {
       console.log(`Chat URL: http://localhost:${cfg.port}/?token=${cfg.token}`);
     });
 
-    // SSE keepalive — 30s ping to prevent proxy/tunnel timeouts
+    // Application-layer ping — 25s keepalive to prevent proxy/tunnel timeouts
     const keepalive = setInterval(() => {
-      for (const [token, clients] of sseClients) {
-        for (const client of clients) {
-          try {
-            const ok = client.write(
-              `data: ${JSON.stringify({ type: "ping" })}\n\n`,
-            );
-            if (!ok) removeSseClient(token, client);
-          } catch {
-            removeSseClient(token, client);
+      for (const [token, clients] of wsClients) {
+        for (const ws of [...clients]) {
+          if (ws.readyState === WebSocket.OPEN) {
+            try {
+              ws.send(JSON.stringify({ type: "ping" }));
+            } catch {
+              removeWsClient(token, ws);
+            }
+          } else {
+            removeWsClient(token, ws);
           }
         }
+      }
+    }, 25_000);
+
+    // Protocol-layer ping/pong — detect dead connections
+    const deadCheck = setInterval(() => {
+      for (const client of wss.clients) {
+        const ws = client as KlausWebSocket;
+        if (!ws.isAlive) {
+          ws.terminate();
+          continue;
+        }
+        ws.isAlive = false;
+        ws.ping();
       }
     }, 30_000);
 
@@ -608,6 +668,8 @@ export const webPlugin: ChannelPlugin = {
     // Cleanup on process exit
     const cleanup = (): void => {
       clearInterval(keepalive);
+      clearInterval(deadCheck);
+      wss.close();
       tunnelChild?.kill();
     };
     process.once("exit", cleanup);

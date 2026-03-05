@@ -149,6 +149,23 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 .msg.streaming { white-space: pre-wrap; }
 .msg.streaming .cursor { display: inline-block; width: 2px; height: 1em; background: var(--thinking); animation: blink 0.8s step-end infinite; vertical-align: text-bottom; margin-left: 1px; }
 @keyframes blink { 50% { opacity: 0; } }
+.sidebar { position: fixed; left: 0; top: 0; bottom: 0; width: 280px; background: var(--input-container); border-right: 1px solid var(--border); z-index: 30; transform: translateX(-100%); transition: transform 0.25s ease; display: flex; flex-direction: column; }
+.sidebar.open { transform: translateX(0); }
+.sidebar-header { padding: 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+.sidebar-title { font-weight: 600; font-size: 15px; }
+.new-chat-btn { background: var(--accent); color: var(--accent-text); border: none; padding: 6px 14px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: var(--font-main); transition: background 0.2s; }
+.new-chat-btn:hover { background: var(--accent-hover); }
+.session-list { flex: 1; overflow-y: auto; padding: 8px; }
+.session-item { padding: 10px 12px; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 13px; transition: background 0.15s; }
+.session-item:hover { background: var(--preview-bg); }
+.session-item.active { background: var(--preview-bg); font-weight: 600; }
+.session-item .s-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-item .s-del { opacity: 0; background: none; border: none; color: var(--thinking); cursor: pointer; padding: 2px 4px; font-size: 14px; line-height: 1; border-radius: 4px; transition: opacity 0.15s; }
+.session-item:hover .s-del { opacity: 0.6; }
+.session-item .s-del:hover { opacity: 1; background: var(--code-bg); }
+.sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 25; display: none; }
+.sidebar-overlay.show { display: block; }
+.menu-btn { background: transparent; border: none; cursor: pointer; color: var(--fg); padding: 4px; display: flex; align-items: center; font-size: 18px; }
 .perm-banner { position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%); max-width: 600px; width: calc(100% - 32px); background: var(--input-container); border: 1px solid var(--border); border-radius: 16px; padding: 14px 18px; box-shadow: 0 8px 30px rgba(0,0,0,0.12); z-index: 20; animation: fade-in 0.3s ease-out; display: flex; align-items: center; gap: 12px; }
 .perm-info { flex: 1; min-width: 0; }
 .perm-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
@@ -162,8 +179,17 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 </head>
 <body>
 <div id="app">
+  <div id="sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-title">Chats</span>
+      <button class="new-chat-btn" id="new-chat-btn">+ New</button>
+    </div>
+    <div class="session-list" id="session-list"></div>
+  </div>
+  <div id="sidebar-overlay" class="sidebar-overlay"></div>
   <div id="header">
     <div class="brand">
+      <button class="menu-btn" id="menu-btn">&#9776;</button>
       <div class="brand-icon">K</div>
       Klaus AI
     </div>
@@ -204,7 +230,120 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
   const attachBtn = document.getElementById("attach");
   const fileInput = document.getElementById("file-input");
   const previewsEl = document.getElementById("previews");
+  const sidebar = document.getElementById("sidebar");
+  const sidebarOverlay = document.getElementById("sidebar-overlay");
+  const menuBtn = document.getElementById("menu-btn");
+  const newChatBtn = document.getElementById("new-chat-btn");
+  const sessionListEl = document.getElementById("session-list");
   let busy = false;
+
+  // --- Session management ---
+  var SP = "klaus_" + token.slice(0, 8);
+  var sessionsMeta = (function() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(SP + "_s") || "[]");
+      if (!Array.isArray(raw)) return [];
+      return raw.filter(function(s) { return s && typeof s.id === "string"; });
+    } catch(_) { return []; }
+  })();
+  var currentSessionId = localStorage.getItem(SP + "_c") || null;
+  var sessionDom = new Map();
+  var prevSessionId = null;
+
+  if (!currentSessionId || !sessionsMeta.find(function(s){ return s.id === currentSessionId; })) {
+    currentSessionId = crypto.randomUUID();
+    sessionsMeta.unshift({ id: currentSessionId, title: "New Chat", ts: Date.now() });
+  }
+  saveSessionMeta();
+  renderSessionList();
+
+  function saveSessionMeta() {
+    localStorage.setItem(SP + "_s", JSON.stringify(sessionsMeta));
+    localStorage.setItem(SP + "_c", currentSessionId);
+  }
+
+  function createNewChat() {
+    // Save current DOM
+    var frag = document.createDocumentFragment();
+    while (msgs.firstChild) frag.appendChild(msgs.firstChild);
+    if (frag.childNodes.length) sessionDom.set(currentSessionId, frag);
+    // Create new session
+    prevSessionId = currentSessionId;
+    currentSessionId = crypto.randomUUID();
+    sessionsMeta.unshift({ id: currentSessionId, title: "New Chat", ts: Date.now() });
+    saveSessionMeta();
+    busy = false; isStreaming = false; streamBuffer = "";
+    if (streamTimer) { clearTimeout(streamTimer); streamTimer = null; }
+    activeTools.clear(); toolContainer = null;
+    updateBtn(); renderSessionList(); closeSidebar();
+  }
+
+  function switchSession(id) {
+    if (id === currentSessionId) { closeSidebar(); return; }
+    // Save current DOM
+    var frag = document.createDocumentFragment();
+    while (msgs.firstChild) frag.appendChild(msgs.firstChild);
+    if (frag.childNodes.length) sessionDom.set(currentSessionId, frag);
+    // Load target
+    prevSessionId = currentSessionId;
+    currentSessionId = id;
+    var saved = sessionDom.get(id);
+    if (saved) { msgs.appendChild(saved); sessionDom.delete(id); }
+    busy = false; isStreaming = false; streamBuffer = "";
+    if (streamTimer) { clearTimeout(streamTimer); streamTimer = null; }
+    activeTools.clear(); toolContainer = null;
+    updateBtn(); saveSessionMeta(); renderSessionList(); closeSidebar(); scrollBottom();
+  }
+
+  function deleteSession(id, evt) {
+    if (evt) { evt.stopPropagation(); evt.preventDefault(); }
+    sessionsMeta = sessionsMeta.filter(function(s){ return s.id !== id; });
+    sessionDom.delete(id);
+    if (id === currentSessionId) {
+      // Clear current messages
+      while (msgs.firstChild) msgs.removeChild(msgs.firstChild);
+      if (!sessionsMeta.length) { createNewChat(); return; }
+      currentSessionId = sessionsMeta[0].id;
+      var saved = sessionDom.get(currentSessionId);
+      if (saved) { msgs.appendChild(saved); sessionDom.delete(currentSessionId); }
+    }
+    saveSessionMeta(); renderSessionList();
+  }
+
+  function updateSessionTitle(text) {
+    var s = sessionsMeta.find(function(s){ return s.id === currentSessionId; });
+    if (s && s.title === "New Chat" && text) {
+      s.title = text.slice(0, 40);
+      s.ts = Date.now();
+      saveSessionMeta(); renderSessionList();
+    }
+  }
+
+  function renderSessionList() {
+    sessionListEl.innerHTML = "";
+    sessionsMeta.forEach(function(s) {
+      var el = document.createElement("div");
+      el.className = "session-item" + (s.id === currentSessionId ? " active" : "");
+      var title = document.createElement("span");
+      title.className = "s-title";
+      title.textContent = s.title || "New Chat";
+      var del = document.createElement("button");
+      del.className = "s-del";
+      del.innerHTML = "&#10005;";
+      del.title = "Delete";
+      del.onclick = function(e) { deleteSession(s.id, e); };
+      el.appendChild(title);
+      el.appendChild(del);
+      el.onclick = function() { switchSession(s.id); };
+      sessionListEl.appendChild(el);
+    });
+  }
+
+  function openSidebar() { sidebar.classList.add("open"); sidebarOverlay.classList.add("show"); }
+  function closeSidebar() { sidebar.classList.remove("open"); sidebarOverlay.classList.remove("show"); }
+  menuBtn.addEventListener("click", function() { sidebar.classList.contains("open") ? closeSidebar() : openSidebar(); });
+  sidebarOverlay.addEventListener("click", closeSidebar);
+  newChatBtn.addEventListener("click", createNewChat);
 
   const pendingFiles = [];
 
@@ -214,25 +353,47 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     updateBtn();
   });
 
-  const es = new EventSource("/api/events?token="+encodeURIComponent(token));
-  es.onopen = () => { statusEl.textContent = "Connected"; statusEl.className = ""; };
-  es.onerror = () => { statusEl.textContent = "Reconnecting..."; statusEl.className = "disconnected"; };
-  es.onmessage = (e) => {
-    const data = JSON.parse(e.data);
-    if (data.type === "ping") return;
-    if (data.type === "permission") { showPermissionBanner(data.data); return; }
-    if (data.type === "tool") { handleToolEvent(data.data); return; }
-    if (data.type === "stream") { handleStreamChunk(data.chunk); return; }
-    if (!isStreaming) { removeThinking(); clearToolContainer(); }
-    removePermissionBanner();
-    if (data.type === "message") {
-      if (isStreaming) { finalizeStreamingMessage(data.text); }
-      else { appendMsg("assistant", data.text); }
-      busy = false; updateBtn();
-    }
-    else if (data.type === "merged") { if (isStreaming) { finalizeStreamingMessage(""); } busy = false; updateBtn(); }
-    else if (data.type === "error") { if (isStreaming) { finalizeStreamingMessage(""); } appendErrorMsg(data.message); busy = false; updateBtn(); }
-  };
+  var ws = null;
+  var reconnectAttempt = 0;
+
+  function connectWs() {
+    var proto = location.protocol === "https:" ? "wss:" : "ws:";
+    ws = new WebSocket(proto + "//" + location.host + "/api/ws?token=" + encodeURIComponent(token));
+    ws.onopen = function() {
+      reconnectAttempt = 0;
+      statusEl.textContent = "Connected";
+      statusEl.className = "";
+    };
+    ws.onclose = function() {
+      ws = null;
+      statusEl.textContent = "Reconnecting...";
+      statusEl.className = "disconnected";
+      var base = Math.min(1000 * Math.pow(2, reconnectAttempt), 30000);
+      var delay = Math.round(base + base * 0.2 * Math.random());
+      reconnectAttempt++;
+      setTimeout(connectWs, delay);
+    };
+    ws.onerror = function() {};
+    ws.onmessage = function(e) {
+      var data;
+      try { data = JSON.parse(e.data); } catch(_) { return; }
+      if (data.type === "ping") return;
+      if (data.sessionId && data.sessionId !== currentSessionId) return;
+      if (data.type === "permission") { showPermissionBanner(data.data); return; }
+      if (data.type === "tool") { handleToolEvent(data.data); return; }
+      if (data.type === "stream") { handleStreamChunk(data.chunk); return; }
+      if (!isStreaming) { removeThinking(); clearToolContainer(); }
+      removePermissionBanner();
+      if (data.type === "message") {
+        if (isStreaming) { finalizeStreamingMessage(data.text); }
+        else { appendMsg("assistant", data.text); }
+        busy = false; updateBtn();
+      }
+      else if (data.type === "merged") { if (isStreaming) { finalizeStreamingMessage(""); } busy = false; updateBtn(); }
+      else if (data.type === "error") { if (isStreaming) { finalizeStreamingMessage(""); } appendErrorMsg(data.message); busy = false; updateBtn(); }
+    };
+  }
+  connectWs();
 
   attachBtn.addEventListener("click", () => fileInput.click());
   fileInput.addEventListener("change", () => {
@@ -365,16 +526,14 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 
     input.value = ""; input.style.height = "auto";
     busy = true; updateBtn(); showThinking();
-    try {
-      const body = { token, text };
-      if (fileIds.length) body.files = fileIds;
-      const res = await fetch("/api/message", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      });
-      if (!res.ok) { const d = await res.json().catch(()=>({})); appendErrorMsg(d.error||"Request failed"); removeThinking(); busy=false; updateBtn(); }
-    } catch(err) { appendErrorMsg("Network error"); removeThinking(); busy=false; updateBtn(); }
+    updateSessionTitle(text);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      var msg = { type: "message", text: text, sessionId: currentSessionId };
+      if (fileIds.length) msg.files = fileIds;
+      ws.send(JSON.stringify(msg));
+    } else {
+      appendErrorMsg("Not connected"); removeThinking(); busy = false; updateBtn();
+    }
   }
 
   sendBtn.addEventListener("click", send);
@@ -653,11 +812,9 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 
   function respondPermission(requestId, allow) {
     removePermissionBanner();
-    fetch("/api/permission", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: token, requestId: requestId, allow: allow })
-    }).catch(function(err) { console.error("Permission response failed:", err); });
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "permission", requestId: requestId, allow: allow }));
+    }
   }
 
   function postProcessMsg(container) {
