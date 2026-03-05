@@ -4,5 +4,7 @@ dist/
 .DS_Store
 .claude/
 openclaw/
+claudecodeui/
 release.sh
 OPENCLAW-ANALYSIS.md
+*.md

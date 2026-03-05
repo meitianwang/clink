@@ -1,7 +1,14 @@
 import type { InboundMessage } from "./message.js";
+import type { ToolEvent } from "./tool-config.js";
+
+/** Callback invoked when Claude uses a tool (optional, used by Web channel). */
+export type ToolEventCallback = (event: ToolEvent) => void;
 
 /** Handler signature: receives a structured InboundMessage, returns reply text (null = merged, skip reply). */
-export type Handler = (msg: InboundMessage) => Promise<string | null>;
+export type Handler = (
+  msg: InboundMessage,
+  onToolEvent?: ToolEventCallback,
+) => Promise<string | null>;
 
 export interface QQBotConfig {
   readonly appid: string;

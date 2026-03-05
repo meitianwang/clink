@@ -110,6 +110,22 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--thinking); }
+.tool-container { display: flex; flex-direction: column; gap: 2px; max-width: 800px; width: 100%; margin: 0 auto; padding: 0 16px 0 68px; }
+.tool-item { display: flex; align-items: center; gap: 8px; padding: 5px 12px; border-left: 2px solid var(--border); font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; animation: fade-in 0.2s ease-out; transition: opacity 0.4s ease; }
+.tool-item.terminal { border-left-color: #22c55e; }
+.tool-item.file { border-left-color: #3b82f6; }
+.tool-item.search { border-left-color: #a855f7; }
+.tool-icon { flex-shrink: 0; width: 14px; height: 14px; color: var(--thinking); }
+.tool-label { font-size: 12px; color: var(--thinking); flex-shrink: 0; font-family: var(--font-main); font-weight: 500; }
+.tool-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); opacity: 0.8; }
+.tool-value.terminal-cmd { color: #4ade80; }
+@media(prefers-color-scheme: light) { .tool-value.terminal-cmd { color: #16a34a; } }
+.tool-secondary { font-size: 11px; color: var(--thinking); font-family: var(--font-main); flex-shrink: 0; }
+.tool-item.done { opacity: 0.35; }
+.tool-item.error { opacity: 0.8; }
+.tool-item.error .tool-value { color: #ef4444; }
+.tool-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--thinking); animation: pulse 1.4s ease-in-out infinite; flex-shrink: 0; }
+@keyframes pulse { 0%,100% { opacity: 0.3; } 50% { opacity: 1; } }
 </style>
 </head>
 <body>
@@ -166,7 +182,9 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
   es.onmessage = (e) => {
     const data = JSON.parse(e.data);
     if (data.type === "ping") return;
+    if (data.type === "tool") { handleToolEvent(data.data); return; }
     removeThinking();
+    clearToolContainer();
     if (data.type === "message") { appendMsg("assistant", data.text); busy = false; updateBtn(); }
     else if (data.type === "merged") { busy = false; updateBtn(); }
     else if (data.type === "error") { appendErrorMsg(data.message); busy = false; updateBtn(); }
@@ -338,9 +356,89 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
     el.innerHTML = '<div class="avatar">K</div><div class="msg assistant"><div class="thinking"><div class="spinner"></div>Thinking...</div></div>';
     msgs.appendChild(el); scrollBottom();
   }
-  function removeThinking() { 
-    const el = document.getElementById("thinking-container"); 
-    if (el) el.remove(); 
+  function removeThinking() {
+    const el = document.getElementById("thinking-container");
+    if (el) el.remove();
+  }
+
+  const activeTools = new Map();
+  let toolContainer = null;
+
+  const toolIcons = {
+    terminal: '<svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 9l3 3-3 3"/><path d="M13 15h3"/><rect x="3" y="4" width="18" height="16" rx="2"/></svg>',
+    file: '<svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>',
+    "file-plus": '<svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>',
+    edit: '<svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+    search: '<svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+    globe: '<svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>',
+    list: '<svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>',
+    agent: '<svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2m0 18v2m-9-11h2m18 0h2m-3.64-6.36l-1.42 1.42M6.34 17.66l-1.42 1.42m0-13.08l1.42 1.42m11.32 11.32l1.42 1.42"/></svg>',
+    tool: '<svg class="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>'
+  };
+
+  function getOrCreateToolContainer() {
+    if (toolContainer && document.contains(toolContainer)) return toolContainer;
+    toolContainer = document.createElement("div");
+    toolContainer.className = "tool-container";
+    toolContainer.id = "active-tools";
+    const thinking = document.getElementById("thinking-container");
+    if (thinking) {
+      msgs.insertBefore(toolContainer, thinking);
+    } else {
+      msgs.appendChild(toolContainer);
+    }
+    return toolContainer;
+  }
+
+  function clearToolContainer() {
+    const tc = document.getElementById("active-tools");
+    if (tc) tc.remove();
+    toolContainer = null;
+    activeTools.clear();
+  }
+
+  function handleToolEvent(te) {
+    if (!te) return;
+    if (te.type === "tool_start") {
+      const container = getOrCreateToolContainer();
+      const el = document.createElement("div");
+      el.className = "tool-item " + (te.display.style || "default");
+      el.id = "tool-" + te.toolUseId;
+      const iconKey = Object.prototype.hasOwnProperty.call(toolIcons, te.display.icon) ? te.display.icon : "tool";
+      let html = toolIcons[iconKey];
+      html += '<span class="tool-label">' + escHtml(te.display.label) + '</span>';
+      if (te.display.value) {
+        const cls = te.display.style === "terminal" ? "tool-value terminal-cmd" : "tool-value";
+        const prefix = te.display.style === "terminal" ? "$ " : "";
+        html += '<span class="' + cls + '">' + prefix + escHtml(te.display.value) + '</span>';
+      }
+      if (te.display.secondary) {
+        html += '<span class="tool-secondary">' + escHtml(te.display.secondary) + '</span>';
+      }
+      html += '<span class="tool-dot"></span>';
+      el.innerHTML = html;
+      container.appendChild(el);
+      activeTools.set(te.toolUseId, { element: el, toolName: te.toolName });
+      scrollBottom();
+    }
+    if (te.type === "tool_result") {
+      const tracked = activeTools.get(te.toolUseId);
+      if (tracked) {
+        const dot = tracked.element.querySelector(".tool-dot");
+        if (dot) dot.remove();
+        if (te.isError) {
+          tracked.element.classList.add("error");
+          const errSpan = document.createElement("span");
+          errSpan.className = "tool-secondary";
+          errSpan.style.color = "#ef4444";
+          errSpan.textContent = "error";
+          tracked.element.appendChild(errSpan);
+        } else {
+          tracked.element.classList.add("done");
+        }
+        activeTools.delete(te.toolUseId);
+      }
+    }
   }
 
   function appendUserMsg(text, imageUrls, fileNames) {

@@ -8,6 +8,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { loadConfig } from "./config.js";
 import type { SessionStore, PersistedSession } from "./session-store.js";
+import type { ToolEventCallback } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -81,20 +82,26 @@ export class ClaudeChat {
    * Send a message to Claude. If the error indicates a stale/expired session,
    * clears sessionId and retries once without resume.
    */
-  private async doChat(prompt: string): Promise<string> {
+  private async doChat(
+    prompt: string,
+    onToolEvent?: ToolEventCallback,
+  ): Promise<string> {
     try {
-      return await this.doChatInner(prompt);
+      return await this.doChatInner(prompt, onToolEvent);
     } catch (err) {
       if (this.sessionId && isSessionExpiredError(err)) {
         console.log("[Chat] Session expired, starting fresh session");
         this.sessionId = undefined;
-        return await this.doChatInner(prompt);
+        return await this.doChatInner(prompt, onToolEvent);
       }
       throw err;
     }
   }
 
-  private async doChatInner(prompt: string): Promise<string> {
+  private async doChatInner(
+    prompt: string,
+    onToolEvent?: ToolEventCallback,
+  ): Promise<string> {
     let resultText: string | undefined;
     let lastSessionId: string | undefined;
 
@@ -115,6 +122,11 @@ export class ClaudeChat {
       if ("session_id" in msg && typeof msg.session_id === "string") {
         lastSessionId = msg.session_id;
       }
+
+      // Extract tool use events for Web channel visualization
+      if (onToolEvent) {
+        this.emitToolEvents(msg, onToolEvent);
+      }
     }
 
     if (lastSessionId) {
@@ -124,13 +136,81 @@ export class ClaudeChat {
     return resultText || "(no response)";
   }
 
+  private emitToolEvents(
+    msg: { type: string; [key: string]: unknown },
+    onToolEvent: ToolEventCallback,
+  ): void {
+    // SDKAssistantMessage: content[] may contain tool_use blocks
+    if (msg.type === "assistant") {
+      const message = msg.message as
+        | {
+            content?: readonly {
+              type: string;
+              id?: string;
+              name?: string;
+              input?: unknown;
+            }[];
+          }
+        | undefined;
+      if (message?.content) {
+        for (const block of message.content) {
+          if (block.type === "tool_use" && block.id && block.name) {
+            onToolEvent({
+              type: "tool_start",
+              toolUseId: block.id,
+              toolName: block.name,
+              input: (block.input ?? {}) as Record<string, unknown>,
+              timestamp: Date.now(),
+            });
+          }
+        }
+      }
+    }
+
+    // SDKUserMessage: content[] may contain tool_result blocks
+    if (msg.type === "user") {
+      const message = msg.message as
+        | {
+            content?:
+              | readonly {
+                  type: string;
+                  tool_use_id?: string;
+                  is_error?: boolean;
+                }[]
+              | string;
+          }
+        | undefined;
+      if (message?.content && Array.isArray(message.content)) {
+        for (const block of message.content) {
+          if (
+            typeof block === "object" &&
+            block !== null &&
+            block.type === "tool_result" &&
+            block.tool_use_id
+          ) {
+            onToolEvent({
+              type: "tool_result",
+              toolUseId: block.tool_use_id,
+              toolName: "",
+              isError: block.is_error ?? false,
+              timestamp: Date.now(),
+            });
+          }
+        }
+      }
+    }
+  }
+
   /**
    * Send a message, return the full text reply.
    *
    * If the agent is busy, the message is queued (collect mode).
    * Returns null for callers whose messages were merged into a batch.
    */
-  async chat(prompt: string): Promise<string | null> {
+  async chat(
+    prompt: string,
+    onToolEvent?: ToolEventCallback,
+  ): Promise<string | null> {
     if (this.busy) {
       const deferred = createDeferred<string | null>();
       this.pending.push({ prompt, deferred });
@@ -142,7 +222,7 @@ export class ClaudeChat {
 
     this.busy = true;
     try {
-      let reply = await this.doChat(prompt);
+      let reply = await this.doChat(prompt, onToolEvent);
 
       // Drain queued messages (collect mode)
       while (this.pending.length > 0) {
@@ -165,7 +245,7 @@ export class ClaudeChat {
         // Process the merged message; ensure last caller's deferred
         // is always resolved even if doChat throws.
         try {
-          reply = await this.doChat(merged);
+          reply = await this.doChat(merged, onToolEvent);
           batch[batch.length - 1].deferred.resolve(reply);
         } catch (e) {
           batch[batch.length - 1].deferred.resolve(null);
@@ -288,10 +368,14 @@ export class ChatSessionManager {
     return chat;
   }
 
-  async chat(sessionKey: string, prompt: string): Promise<string | null> {
+  async chat(
+    sessionKey: string,
+    prompt: string,
+    onToolEvent?: ToolEventCallback,
+  ): Promise<string | null> {
     await this.evictIfNeeded();
     const session = this.getSession(sessionKey);
-    const result = await session.chat(prompt);
+    const result = await session.chat(prompt, onToolEvent);
 
     // Persist after successful chat (fire-and-forget)
     if (result !== null) {

@@ -18,12 +18,13 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ChannelPlugin } from "./types.js";
-import type { Handler } from "../types.js";
+import type { Handler, ToolEventCallback } from "../types.js";
 import type { WebConfig } from "../types.js";
 import { loadWebConfig } from "../config.js";
 import type { InboundMessage, MediaFile } from "../message.js";
 import { getChatHtml } from "./web-ui.js";
 import { startTunnel } from "./web-tunnel.js";
+import { formatToolEventForSse, type SseToolPayload } from "../tool-config.js";
 
 // ---------------------------------------------------------------------------
 // File upload storage
@@ -44,7 +45,8 @@ type SseEvent =
   | { readonly type: "message"; readonly text: string; readonly id: string }
   | { readonly type: "merged" }
   | { readonly type: "error"; readonly message: string }
-  | { readonly type: "ping" };
+  | { readonly type: "ping" }
+  | { readonly type: "tool"; readonly data: SseToolPayload };
 
 function addSseClient(token: string, res: ServerResponse): void {
   let clients = sseClients.get(token);
@@ -274,8 +276,17 @@ async function handleMessage(
     `[Web] Received (web:${tokenLabel(token)}): ${text.slice(0, 120)}${mediaLabel}`,
   );
 
+  // Stream tool events to the client via SSE (errors must not interrupt the main response)
+  const onToolEvent: ToolEventCallback = (event) => {
+    try {
+      sendSseEvent(token, { type: "tool", data: formatToolEventForSse(event) });
+    } catch (err) {
+      console.error("[Web] Failed to send tool event:", err);
+    }
+  };
+
   try {
-    const reply = await handler(msg);
+    const reply = await handler(msg, onToolEvent);
     if (reply === null) {
       console.log("[Web] Message merged into batch, skipping reply");
       sendSseEvent(token, { type: "merged" });

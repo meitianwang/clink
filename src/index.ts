@@ -8,6 +8,7 @@ import { ensureConfigValid } from "./config-validate.js";
 import { ChatSessionManager } from "./core.js";
 import { t } from "./i18n.js";
 import { type InboundMessage, formatPrompt } from "./message.js";
+import type { ToolEventCallback } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Channel registration
@@ -56,7 +57,10 @@ async function start(): Promise<void> {
 
   const sessions = new ChatSessionManager(store, sessionCfg.idleMs);
 
-  const handler = async (msg: InboundMessage): Promise<string | null> => {
+  const handler = async (
+    msg: InboundMessage,
+    onToolEvent?: ToolEventCallback,
+  ): Promise<string | null> => {
     const trimmed = msg.text.trim();
 
     // /new, /reset, /clear — reset conversation
@@ -99,7 +103,7 @@ async function start(): Promise<void> {
 
     const prompt = formatPrompt(msg);
     if (!prompt) return null;
-    return sessions.chat(msg.sessionKey, prompt);
+    return sessions.chat(msg.sessionKey, prompt, onToolEvent);
   };
 
   try {
