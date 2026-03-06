@@ -1,6 +1,6 @@
 {
   "name": "klaus-ai",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "Use Claude Code from QQ, WeChat Work, or any messaging platform",
   "type": "module",
   "bin": {
