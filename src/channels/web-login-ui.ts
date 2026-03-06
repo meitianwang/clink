@@ -32,7 +32,8 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 .container { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .card { width: 100%; max-width: 400px; }
 .brand { text-align: center; margin-bottom: 32px; }
-.brand-icon { width: 48px; height: 48px; background: var(--fg); border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; color: var(--bg); font-size: 24px; font-weight: bold; margin-bottom: 12px; }
+.brand-icon { width: 48px; height: 48px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 12px; }
+.brand-icon img { width: 100%; height: 100%; object-fit: contain; border-radius: 12px; }
 .brand h1 { font-size: 24px; font-weight: 700; }
 .brand p { font-size: 14px; color: var(--muted); margin-top: 4px; }
 .tabs { display: flex; gap: 0; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
@@ -64,7 +65,7 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 <div class="container">
 <div class="card">
   <div class="brand">
-    <div class="brand-icon">K</div>
+    <div class="brand-icon"><img src="/logo.png" alt="Klaus AI Logo" /></div>
     <h1>Klaus AI</h1>
     <p>Sign in to start chatting</p>
   </div>

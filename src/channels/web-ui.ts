@@ -61,7 +61,8 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 #app { display: flex; flex-direction: column; height: 100%; position: relative; }
 #header { padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; background: rgba(var(--bg), 0.8); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); z-index: 10; }
 .brand { font-weight: 600; font-size: 16px; display: flex; align-items: center; gap: 8px; }
-.brand-icon { width: 24px; height: 24px; background: var(--fg); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--bg); font-size: 14px; font-weight: bold; }
+.brand-icon { width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+.brand-icon img { width: 100%; height: 100%; object-fit: contain; border-radius: 6px; }
 #status { font-size: 13px; font-weight: 500; color: #10b981; display: flex; align-items: center; gap: 6px; }
 #status::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981; }
 #status.disconnected { color: #ef4444; }
@@ -220,7 +221,7 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
   <div id="header">
     <div class="brand">
       <button class="menu-btn" id="menu-btn">&#9776;</button>
-      <div class="brand-icon">K</div>
+      <div class="brand-icon"><img src="/logo.png" alt="Klaus AI Logo" /></div>
       Klaus AI
     </div>
     <div style="display:flex;align-items:center;gap:12px">

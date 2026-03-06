@@ -39,7 +39,8 @@ html, body { height: 100%; font-family: var(--font-main); background: var(--bg);
 #app { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
 #header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 24px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
 .brand { font-weight: 600; font-size: 20px; display: flex; align-items: center; gap: 10px; }
-.brand-icon { width: 28px; height: 28px; background: var(--fg); border-radius: 6px; display: flex; align-items: center; justify-content: center; color: var(--bg); font-size: 15px; font-weight: bold; }
+.brand-icon { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+.brand-icon img { width: 100%; height: 100%; object-fit: contain; border-radius: 6px; }
 .header-links { display: flex; gap: 16px; align-items: center; }
 .nav-link { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500; cursor: pointer; }
 .nav-link:hover { color: var(--fg); }
@@ -97,7 +98,7 @@ tr.clickable:hover { background: var(--card-bg); }
 <body>
 <div id="app">
   <div id="header">
-    <div class="brand"><div class="brand-icon">K</div>Klaus Admin</div>
+    <div class="brand"><div class="brand-icon"><img src="/logo.png" alt="Klaus AI Logo" /></div>Klaus Admin</div>
     <div class="header-links">
       <a class="nav-link" id="back-link" href="#">← Chat</a>
     </div>
