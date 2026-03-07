@@ -77,10 +77,15 @@ async function start(): Promise<void> {
   const messageStore = new MessageStore(loadTranscriptsConfig());
   messageStore.prune();
 
+  // Initialize per-user memory store
+  const { MemoryStore } = await import("./memory-store.js");
+  const memoryStore = new MemoryStore();
+
   const sessions = new ChatSessionManager(
     store,
     sessionCfg.idleMs,
     messageStore,
+    memoryStore,
   );
 
   // Expose stores to web channel for API endpoints

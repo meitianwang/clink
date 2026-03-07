@@ -11,12 +11,20 @@ import { getToolConfig } from "./tool-config.js";
 import { DEFAULT_PERSONA } from "./persona.js";
 import type { SessionStore, PersistedSession } from "./session-store.js";
 import type { MessageStore } from "./message-store.js";
+import { type MemoryStore, buildMemoryFlushPrompt } from "./memory-store.js";
 import type {
   ToolEventCallback,
   StreamChunkCallback,
   PermissionRequestCallback,
   PermissionRequest,
 } from "./types.js";
+
+/**
+ * Memory flush interval: trigger a silent memory-save turn every N chat rounds.
+ * Aligned with OpenClaw's pre-compaction flush concept, but using message count
+ * as proxy since we don't have access to SDK token counts.
+ */
+const MEMORY_FLUSH_INTERVAL = 20;
 
 // Read-only tools — auto-allow without permission prompt
 const READ_ONLY_TOOLS = new Set([
@@ -80,6 +88,8 @@ export class ClaudeChat {
   private pending: PendingMessage[] = [];
   private options: ChatOptions;
   private model: string | undefined;
+  /** Number of completed chat rounds (for memory flush timing). */
+  private chatRoundCount = 0;
 
   constructor(options: ChatOptions) {
     this.options = options;
@@ -208,6 +218,7 @@ export class ClaudeChat {
       this.sessionId = lastSessionId;
     }
 
+    this.chatRoundCount++;
     return resultText || "(no response)";
   }
 
@@ -389,8 +400,19 @@ export class ClaudeChat {
     this.model = model;
   }
 
+  /** Update the system prompt (e.g. to refresh memory context). */
+  setSystemPrompt(prompt: string): void {
+    this.options = { ...this.options, systemPrompt: prompt };
+  }
+
+  /** Get the number of completed chat rounds. */
+  getRoundCount(): number {
+    return this.chatRoundCount;
+  }
+
   async reset(): Promise<void> {
     this.sessionId = undefined;
+    this.chatRoundCount = 0;
   }
 
   async close(): Promise<void> {
@@ -408,12 +430,14 @@ export class ChatSessionManager {
   private options: ChatOptions;
   private store: SessionStore | undefined;
   private messageStore: MessageStore | undefined;
+  private memoryStore: MemoryStore | undefined;
   private idleMs: number;
 
   constructor(
     store?: SessionStore,
     idleMs?: number,
     messageStore?: MessageStore,
+    memoryStore?: MemoryStore,
   ) {
     const cfg = loadConfig();
     const persona = (cfg.persona as string) || DEFAULT_PERSONA;
@@ -421,6 +445,7 @@ export class ChatSessionManager {
     this.options = { systemPrompt: persona, model };
     this.store = store;
     this.messageStore = messageStore;
+    this.memoryStore = memoryStore;
     this.idleMs = idleMs ?? 4 * 60 * 60 * 1000; // 4 hours default
   }
 
@@ -475,6 +500,13 @@ export class ChatSessionManager {
     }
   }
 
+  private buildSystemPrompt(sessionKey: string): string {
+    const base = this.options.systemPrompt;
+    if (!this.memoryStore) return base;
+    const memorySection = this.memoryStore.buildMemoryPrompt(sessionKey);
+    return memorySection ? `${base}\n\n${memorySection}` : base;
+  }
+
   private getSession(sessionKey: string): ClaudeChat {
     const existing = this.sessions.get(sessionKey);
     if (existing) {
@@ -484,7 +516,11 @@ export class ChatSessionManager {
       return existing;
     }
 
-    const chat = new ClaudeChat(this.options);
+    const sessionOptions: ChatOptions = {
+      ...this.options,
+      systemPrompt: this.buildSystemPrompt(sessionKey),
+    };
+    const chat = new ClaudeChat(sessionOptions);
 
     // Restore sessionId from persistent store if fresh
     if (this.store) {
@@ -514,6 +550,12 @@ export class ChatSessionManager {
   ): Promise<string | null> {
     await this.evictIfNeeded();
     const session = this.getSession(sessionKey);
+
+    // Refresh memory in system prompt before each chat
+    if (this.memoryStore) {
+      session.setSystemPrompt(this.buildSystemPrompt(sessionKey));
+    }
+
     const result = await session.chat(
       prompt,
       onToolEvent,
@@ -537,9 +579,60 @@ export class ChatSessionManager {
           )
           .catch((err) => console.error("[MessageStore] Append failed:", err));
       }
+
+      // Memory flush: schedule a silent turn AFTER returning, so the user
+      // gets their reply immediately. The flush runs when the session is idle.
+      if (this.shouldFlushMemory(session)) {
+        const sk = sessionKey;
+        setTimeout(() => {
+          this.runMemoryFlush(sk, session).catch((err) => {
+            console.error("[Memory] Flush failed:", err);
+          });
+        }, 500);
+      }
     }
 
     return result;
+  }
+
+  /** Check if memory flush should trigger (without side effects). */
+  private shouldFlushMemory(session: ClaudeChat): boolean {
+    if (!this.memoryStore) return false;
+    const rounds = session.getRoundCount();
+    return rounds > 0 && rounds % MEMORY_FLUSH_INTERVAL === 0;
+  }
+
+  /**
+   * Run a silent memory flush turn. Aligned with OpenClaw's pre-compaction
+   * flush: a hidden agent turn that saves durable memories to disk.
+   *
+   * Skips if the session is busy (user sent a new message before flush ran).
+   * The flush reply is discarded — the user never sees it.
+   */
+  private async runMemoryFlush(
+    sessionKey: string,
+    session: ClaudeChat,
+  ): Promise<void> {
+    // Skip if user already started a new conversation turn
+    if (session.isBusy) {
+      console.log(`[Memory] Flush skipped (session busy): ${sessionKey}`);
+      return;
+    }
+
+    console.log(
+      `[Memory] Triggering flush for ${sessionKey} (round ${session.getRoundCount()})`,
+    );
+    try {
+      session.setSystemPrompt(this.buildSystemPrompt(sessionKey));
+      const flushReply = await session.chat(buildMemoryFlushPrompt());
+      if (flushReply) {
+        console.log(
+          `[Memory] Flush complete for ${sessionKey}: ${flushReply.slice(0, 80)}`,
+        );
+      }
+    } catch (err) {
+      console.error(`[Memory] Flush error for ${sessionKey}:`, err);
+    }
   }
 
   setModel(sessionKey: string, model: string): void {
