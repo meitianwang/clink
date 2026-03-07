@@ -80,6 +80,44 @@ const UPLOAD_DIR = join(tmpdir(), "klaus-web-uploads");
 mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024; // 50 MB
+
+// ---------------------------------------------------------------------------
+// File download token registry
+// ---------------------------------------------------------------------------
+
+interface DownloadEntry {
+  readonly path: string;
+  readonly name: string;
+  readonly userId: string;
+  readonly expiresAt: number;
+}
+
+const downloadTokens = new Map<string, DownloadEntry>();
+const DOWNLOAD_TOKEN_TTL_MS = 30 * 60_000; // 30 minutes
+
+// Cleanup expired download tokens every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, entry] of downloadTokens) {
+    if (now >= entry.expiresAt) downloadTokens.delete(token);
+  }
+}, 5 * 60_000);
+
+function registerDownloadToken(
+  filePath: string,
+  userId: string,
+): { token: string; name: string } {
+  const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const name = filePath.split("/").pop() ?? "file";
+  downloadTokens.set(token, {
+    path: filePath,
+    name,
+    userId,
+    expiresAt: Date.now() + DOWNLOAD_TOKEN_TTL_MS,
+  });
+  return { token, name };
+}
 
 const ALLOWED_MIME_PREFIXES = [
   "image/",
@@ -171,7 +209,13 @@ type WsEvent =
       readonly data: PermissionRequest;
       readonly sessionId?: string;
     }
-  | { readonly type: "config_updated" };
+  | { readonly type: "config_updated" }
+  | {
+      readonly type: "file";
+      readonly url: string;
+      readonly name: string;
+      readonly sessionId?: string;
+    };
 
 function addWsClient(userId: string, ws: KlausWebSocket): void {
   let clients = wsClients.get(userId);
@@ -431,6 +475,9 @@ async function processUserMessage(
     `[Web] Received (${userId.slice(0, 8)}): ${trimmedText.slice(0, 120)}${mediaLabel}`,
   );
 
+  // Track file paths from Write tool starts (keyed by toolUseId)
+  const pendingWritePaths = new Map<string, string>();
+
   // Stream tool events to the client via WebSocket
   const onToolEvent: ToolEventCallback = (event) => {
     try {
@@ -439,6 +486,32 @@ async function processUserMessage(
         data: formatToolEvent(event),
         sessionId,
       });
+
+      // Track Write tool file creation for download
+      if (event.toolName === "Write" && event.type === "tool_start") {
+        const filePath = String(event.input?.file_path ?? "");
+        if (filePath) pendingWritePaths.set(event.toolUseId, filePath);
+      }
+      if (
+        event.toolName === "Write" &&
+        event.type === "tool_result" &&
+        !event.isError
+      ) {
+        const filePath = pendingWritePaths.get(event.toolUseId);
+        pendingWritePaths.delete(event.toolUseId);
+        if (filePath) {
+          const { token, name } = registerDownloadToken(filePath, userId);
+          sendWsEvent(userId, {
+            type: "file",
+            url: `/api/files/${token}`,
+            name,
+            sessionId,
+          });
+          console.log(
+            `[Web] File available for download: ${name} (${token.slice(0, 8)}...)`,
+          );
+        }
+      }
     } catch (err) {
       console.error("[Web] Failed to send tool event:", err);
     }
@@ -989,6 +1062,114 @@ async function handleAdminSettings(
 }
 
 // ---------------------------------------------------------------------------
+// File download handler
+// ---------------------------------------------------------------------------
+
+const MIME_MAP: Record<string, string> = {
+  pdf: "application/pdf",
+  json: "application/json",
+  zip: "application/zip",
+  gz: "application/gzip",
+  txt: "text/plain",
+  csv: "text/csv",
+  html: "text/html",
+  md: "text/markdown",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  mp4: "video/mp4",
+  webm: "video/webm",
+};
+
+async function handleFileDownload(
+  req: IncomingMessage,
+  res: ServerResponse,
+  token: string,
+): Promise<void> {
+  const ip = getClientIp(req);
+  if (!checkRateLimit(ip)) {
+    jsonResponse(res, 429, { error: "too many requests" });
+    return;
+  }
+
+  const auth = authenticateRequest(req);
+  if (auth.kind === "invalid") {
+    jsonResponse(res, 401, { error: "unauthorized" });
+    return;
+  }
+
+  // Validate token format (alphanumeric only)
+  if (!/^[a-z0-9]+$/.test(token)) {
+    jsonResponse(res, 400, { error: "invalid token" });
+    return;
+  }
+
+  const entry = downloadTokens.get(token);
+  if (!entry) {
+    jsonResponse(res, 404, { error: "file not found or expired" });
+    return;
+  }
+
+  // Only the same user (or admin) can download
+  if (entry.userId !== auth.user.id && auth.kind !== "admin") {
+    jsonResponse(res, 403, { error: "forbidden" });
+    return;
+  }
+
+  // Check expiry
+  if (Date.now() >= entry.expiresAt) {
+    downloadTokens.delete(token);
+    jsonResponse(res, 410, { error: "download link expired" });
+    return;
+  }
+
+  const { stat, createReadStream } = await import("node:fs/promises").then(
+    async (fsp) => ({
+      stat: fsp.stat,
+      createReadStream: (await import("node:fs")).createReadStream,
+    }),
+  );
+
+  try {
+    const fileStat = await stat(entry.path);
+    if (!fileStat.isFile()) {
+      jsonResponse(res, 404, { error: "file not found" });
+      return;
+    }
+    if (fileStat.size > MAX_DOWNLOAD_SIZE) {
+      jsonResponse(res, 413, { error: "file too large" });
+      return;
+    }
+
+    const ext = entry.name.split(".").pop()?.toLowerCase() ?? "";
+    const contentType = MIME_MAP[ext] ?? "application/octet-stream";
+
+    res.writeHead(200, {
+      "Content-Type": contentType,
+      "Content-Disposition": `attachment; filename="${encodeURIComponent(entry.name)}"`,
+      "Content-Length": fileStat.size,
+      "Cache-Control": "private, no-cache",
+    });
+
+    const stream = createReadStream(entry.path);
+    stream.pipe(res);
+    stream.on("error", () => {
+      if (!res.headersSent) {
+        res.writeHead(500);
+      }
+      res.end();
+    });
+  } catch {
+    jsonResponse(res, 404, { error: "file not found" });
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Request router
 // ---------------------------------------------------------------------------
 
@@ -1157,6 +1338,14 @@ async function handleRequest(
       res.end("ok");
       return;
     default:
+      // File download: /api/files/<token>
+      if (url.pathname.startsWith("/api/files/") && req.method === "GET") {
+        return handleFileDownload(
+          req,
+          res,
+          url.pathname.slice("/api/files/".length),
+        );
+      }
       res.writeHead(404);
       res.end("not found");
   }

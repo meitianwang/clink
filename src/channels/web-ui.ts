@@ -129,6 +129,14 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
 #send svg { width: 18px; height: 18px; stroke-width: 2.5; margin-left: 2px; }
 .drop-overlay { position: fixed; inset: 0; background: rgba(var(--bg), 0.8); backdrop-filter: blur(4px); border: 3px dashed var(--thinking); z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: var(--fg); font-weight: 600; font-size: 20px; pointer-events: none; border-radius: 20px; margin: 16px; }
 .drop-icon { width: 64px; height: 64px; color: var(--thinking); }
+.file-card { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; max-width: 360px; margin: 8px 0; background: var(--msg-user); transition: background 0.2s; }
+.file-card:hover { background: var(--border); }
+.file-card-icon { flex-shrink: 0; width: 36px; height: 36px; border-radius: 8px; background: var(--accent); color: var(--accent-text); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; }
+.file-card-info { flex: 1; min-width: 0; }
+.file-card-name { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+.file-card-hint { font-size: 12px; color: var(--thinking); margin-top: 2px; }
+.file-card-dl { flex-shrink: 0; padding: 6px 14px; border-radius: 8px; background: var(--accent); color: var(--accent-text); font-size: 13px; font-weight: 500; text-decoration: none; cursor: pointer; border: none; transition: background 0.2s; }
+.file-card-dl:hover { background: var(--accent-hover); }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
@@ -277,6 +285,8 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
       upload_failed: "Upload failed: ",
       uploading: "Uploading... ",
       drop_files: "Drop files to upload",
+      file_ready: "Ready to download",
+      download: "Download",
       delete_title: "Delete",
       error: "error",
       language: "Language",
@@ -303,6 +313,8 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
       upload_failed: "上传失败: ",
       uploading: "上传中... ",
       drop_files: "拖拽文件到此处上传",
+      file_ready: "可下载",
+      download: "下载",
       delete_title: "删除",
       error: "错误",
       language: "语言",
@@ -598,6 +610,7 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
       if (data.sessionId && data.sessionId !== currentSessionId) return;
       if (data.type === "permission") { showPermissionBanner(data.data); return; }
       if (data.type === "tool") { handleToolEvent(data.data); return; }
+      if (data.type === "file") { appendFileCard(data.name, data.url); return; }
       if (data.type === "stream") { handleStreamChunk(data.chunk); return; }
       if (!isStreaming) { removeThinking(); clearToolContainer(); }
       removePermissionBanner();
@@ -1027,6 +1040,27 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
     el.className = "msg error";
     el.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>' + escHtml(text);
     msgs.appendChild(el); scrollBottom();
+  }
+
+  var FILE_EXT_LABELS = { pdf: "PDF", json: "JSON", zip: "ZIP", gz: "GZ", txt: "TXT", csv: "CSV", md: "MD", html: "HTML", png: "PNG", jpg: "JPG", jpeg: "JPG", gif: "GIF", webp: "WEBP", svg: "SVG", mp3: "MP3", wav: "WAV", mp4: "MP4", webm: "WEBM", py: "PY", ts: "TS", js: "JS", sh: "SH" };
+  function appendFileCard(name, url) {
+    var ext = (name.split(".").pop() || "").toLowerCase();
+    var label = FILE_EXT_LABELS[ext] || ext.toUpperCase() || "FILE";
+    var wrap = document.createElement("div");
+    wrap.className = "msg-container assistant";
+    var avatar = document.createElement("div");
+    avatar.className = "avatar";
+    avatar.innerHTML = '<img src="/avatar.jpg" alt="K">';
+    wrap.appendChild(avatar);
+    var card = document.createElement("div");
+    card.className = "file-card";
+    card.innerHTML = '<div class="file-card-icon">' + escHtml(label) + '</div>'
+      + '<div class="file-card-info"><div class="file-card-name">' + escHtml(name) + '</div>'
+      + '<div class="file-card-hint">' + tt("file_ready") + '</div></div>'
+      + '<a class="file-card-dl" href="' + escHtml(url) + '" download="' + escHtml(name) + '">' + tt("download") + '</a>';
+    wrap.appendChild(card);
+    msgs.appendChild(wrap);
+    scrollBottom();
   }
 
   var SLASH_COMMANDS = ["/new", "/reset", "/clear", "/help", "/session", "/model"];
