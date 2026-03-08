@@ -13,6 +13,9 @@ import type {
   CronConfig,
   CronTask,
   CronDelivery,
+  CronRetryConfig,
+  CronFailureAlert,
+  CronRunLogConfig,
 } from "./types.js";
 
 export const CONFIG_DIR = join(homedir(), ".klaus");
@@ -170,6 +173,67 @@ export function loadTranscriptsConfig(): TranscriptsConfig {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Cron config helpers
+// ---------------------------------------------------------------------------
+
+const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high"]);
+
+function parseFailureAlert(raw: unknown): CronFailureAlert | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  if (o.enabled === false) return undefined;
+  return {
+    enabled: o.enabled !== false,
+    after: Math.floor(positiveNumber(o.after, 2)),
+    cooldownMs: positiveNumber(o.cooldown_minutes, 60) * 60 * 1000,
+    ...(o.channel ? { channel: String(o.channel) } : {}),
+    ...(o.to ? { to: String(o.to) } : {}),
+  };
+}
+
+function parseRetryConfig(raw: unknown): CronRetryConfig | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  return {
+    maxAttempts: Math.floor(positiveNumber(o.max_attempts, 3)),
+    backoffMs: (() => {
+      const arr = Array.isArray(o.backoff_ms)
+        ? o.backoff_ms.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+        : [];
+      return arr.length > 0
+        ? arr
+        : [30_000, 60_000, 300_000, 900_000, 3_600_000];
+    })(),
+    retryOn: Array.isArray(o.retry_on)
+      ? o.retry_on.map(String)
+      : ["rate_limit", "network", "server_error"],
+  };
+}
+
+function parseRunLogConfig(raw: unknown): CronRunLogConfig | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  return {
+    maxBytes: Math.floor(positiveNumber(o.max_bytes, 2_000_000)),
+    keepLines: Math.floor(positiveNumber(o.keep_lines, 2000)),
+  };
+}
+
+function parseDelivery(raw: unknown): CronDelivery | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const d = raw as Record<string, unknown>;
+  if (!d.channel || typeof d.channel !== "string") return undefined;
+  const mode = d.mode as string | undefined;
+  return {
+    channel: d.channel,
+    ...(d.to ? { to: String(d.to) } : {}),
+    ...(mode === "announce" || mode === "webhook" || mode === "none"
+      ? { mode }
+      : {}),
+  };
+}
+
 export function loadCronConfig(): CronConfig {
   const cfg = (loadConfig().cron as Record<string, unknown>) ?? {};
   const enabled = cfg.enabled === true;
@@ -181,16 +245,7 @@ export function loadCronConfig(): CronConfig {
         typeof t === "object" && t !== null,
     )
     .map((t) => {
-      let deliver: CronDelivery | undefined;
-      if (t.deliver && typeof t.deliver === "object") {
-        const d = t.deliver as Record<string, unknown>;
-        if (d.channel && typeof d.channel === "string") {
-          deliver = {
-            channel: d.channel,
-            ...(d.to ? { to: String(d.to) } : {}),
-          };
-        }
-      }
+      const thinking = String(t.thinking ?? "");
       return {
         id: String(t.id ?? ""),
         name: t.name != null ? String(t.name) : undefined,
@@ -198,10 +253,41 @@ export function loadCronConfig(): CronConfig {
         prompt: String(t.prompt ?? ""),
         model: t.model != null ? String(t.model) : undefined,
         enabled: t.enabled !== false,
-        deliver,
+        // New fields
+        fallbacks: Array.isArray(t.fallbacks)
+          ? t.fallbacks.map(String)
+          : undefined,
+        thinking: THINKING_LEVELS.has(thinking)
+          ? (thinking as CronTask["thinking"])
+          : undefined,
+        lightContext: t.light_context === true ? true : undefined,
+        deleteAfterRun:
+          t.delete_after_run != null ? t.delete_after_run === true : undefined,
+        staggerMs:
+          t.stagger_ms != null ? Math.floor(Number(t.stagger_ms)) : undefined,
+        deliver: parseDelivery(t.deliver),
+        webhookUrl: t.webhook_url != null ? String(t.webhook_url) : undefined,
+        webhookToken:
+          t.webhook_token != null ? String(t.webhook_token) : undefined,
+        failureAlert:
+          t.failure_alert === false
+            ? (false as const)
+            : parseFailureAlert(t.failure_alert),
       };
     })
     .filter((t) => t.id && t.schedule && t.prompt);
 
-  return { enabled, tasks };
+  return {
+    enabled,
+    tasks,
+    webhookToken:
+      cfg.webhook_token != null ? String(cfg.webhook_token) : undefined,
+    retry: parseRetryConfig(cfg.retry),
+    sessionRetentionMs:
+      cfg.session_retention_minutes != null
+        ? positiveNumber(cfg.session_retention_minutes, 1440) * 60 * 1000
+        : undefined,
+    runLog: parseRunLogConfig(cfg.run_log),
+    failureAlert: parseFailureAlert(cfg.failure_alert),
+  };
 }

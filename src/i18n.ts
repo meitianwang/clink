@@ -506,7 +506,7 @@ const TEXTS: Record<string, Record<Lang, string>> = {
       "/model — Show current model\n" +
       "/model <name> — Switch model (sonnet/opus/haiku)\n" +
       "/skills — Show enabled skills\n" +
-      "/cron — Show scheduled tasks",
+      "/cron — Scheduled tasks (list/run/add/edit/remove/status)",
     zh:
       "可用命令:\n" +
       "/new /reset /clear — 重置对话\n" +
@@ -515,7 +515,7 @@ const TEXTS: Record<string, Record<Lang, string>> = {
       "/model — 查看当前模型\n" +
       "/model <名称> — 切换模型 (sonnet/opus/haiku)\n" +
       "/skills — 查看已启用的技能\n" +
-      "/cron — 查看定时任务",
+      "/cron — 定时任务 (列表/触发/添加/编辑/删除/状态)",
   },
   cmd_session_info: {
     en: "Session: {key}\nStatus: {status}\nModel: {model}",
@@ -561,6 +561,70 @@ const TEXTS: Record<string, Record<Lang, string>> = {
   cmd_cron_list: {
     en: "Cron tasks ({count}):\n{list}",
     zh: "定时任务 ({count}):\n{list}",
+  },
+  cmd_cron_help: {
+    en:
+      "Cron commands:\n" +
+      "/cron — List all tasks\n" +
+      "/cron status — Scheduler status\n" +
+      "/cron run <id> — Trigger task now\n" +
+      "/cron runs <id> — View run history\n" +
+      "/cron add <id> <schedule> <prompt> — Add task\n" +
+      "/cron edit <id> <field>=<value> — Edit task\n" +
+      "/cron remove <id> — Remove task\n" +
+      "/cron enable <id> — Enable task\n" +
+      "/cron disable <id> — Disable task",
+    zh:
+      "定时任务命令:\n" +
+      "/cron — 列出所有任务\n" +
+      "/cron status — 调度器状态\n" +
+      "/cron run <id> — 立即触发任务\n" +
+      "/cron runs <id> — 查看运行历史\n" +
+      "/cron add <id> <schedule> <prompt> — 添加任务\n" +
+      "/cron edit <id> <字段>=<值> — 编辑任务\n" +
+      "/cron remove <id> — 删除任务\n" +
+      "/cron enable <id> — 启用任务\n" +
+      "/cron disable <id> — 禁用任务",
+  },
+  cmd_cron_added: {
+    en: 'Task "{id}" added.\nSchedule: {schedule}\nPrompt: {prompt}',
+    zh: '任务 "{id}" 已添加。\n调度: {schedule}\n提示: {prompt}',
+  },
+  cmd_cron_edited: {
+    en: 'Task "{id}" updated.',
+    zh: '任务 "{id}" 已更新。',
+  },
+  cmd_cron_removed: {
+    en: 'Task "{id}" removed.',
+    zh: '任务 "{id}" 已删除。',
+  },
+  cmd_cron_not_found: {
+    en: 'Task "{id}" not found.',
+    zh: '未找到任务 "{id}"。',
+  },
+  cmd_cron_triggered: {
+    en: 'Task "{id}" triggered. Status: {status}',
+    zh: '任务 "{id}" 已触发。状态: {status}',
+  },
+  cmd_cron_runs_header: {
+    en: "Run history for {id} (last {count}):\n{list}",
+    zh: "{id} 的运行历史 (最近 {count} 条):\n{list}",
+  },
+  cmd_cron_runs_empty: {
+    en: 'No runs recorded for "{id}".',
+    zh: '任务 "{id}" 暂无运行记录。',
+  },
+  cmd_cron_status: {
+    en: "Scheduler: {state}\nTasks: {total} total, {active} active\nNext wake: {next}",
+    zh: "调度器: {state}\n任务: 共 {total} 个, {active} 个活跃\n下次触发: {next}",
+  },
+  cmd_cron_enabled: {
+    en: 'Task "{id}" enabled.',
+    zh: '任务 "{id}" 已启用。',
+  },
+  cmd_cron_disabled_task: {
+    en: 'Task "{id}" disabled.',
+    zh: '任务 "{id}" 已禁用。',
   },
   cmd_skills_none: {
     en: "No skills enabled.\n\nAvailable: {available}\n\nEnable in ~/.klaus/config.yaml:\n  skills: all\n  # or list specific skills:\n  skills:\n    - video-frames\n    - xurl\n\nSkills require their CLI tools installed (auto-gated).",

@@ -119,6 +119,26 @@ export type CronScheduleType =
 export interface CronDelivery {
   readonly channel: string;
   readonly to?: string;
+  readonly mode?: "announce" | "webhook" | "none";
+}
+
+export interface CronRetryConfig {
+  readonly maxAttempts: number;
+  readonly backoffMs: readonly number[];
+  readonly retryOn: readonly string[];
+}
+
+export interface CronFailureAlert {
+  readonly enabled: boolean;
+  readonly after: number;
+  readonly cooldownMs: number;
+  readonly channel?: string;
+  readonly to?: string;
+}
+
+export interface CronRunLogConfig {
+  readonly maxBytes: number;
+  readonly keepLines: number;
 }
 
 export interface CronTask {
@@ -127,13 +147,26 @@ export interface CronTask {
   readonly schedule: string | CronScheduleType;
   readonly prompt: string;
   readonly model?: string;
+  readonly fallbacks?: readonly string[];
+  readonly thinking?: "off" | "minimal" | "low" | "medium" | "high";
+  readonly lightContext?: boolean;
   readonly enabled?: boolean;
+  readonly deleteAfterRun?: boolean;
+  readonly staggerMs?: number;
   readonly deliver?: CronDelivery;
+  readonly webhookUrl?: string;
+  readonly webhookToken?: string;
+  readonly failureAlert?: CronFailureAlert | false;
 }
 
 export interface CronConfig {
   readonly enabled: boolean;
   readonly tasks: readonly CronTask[];
+  readonly webhookToken?: string;
+  readonly retry?: CronRetryConfig;
+  readonly sessionRetentionMs?: number;
+  readonly runLog?: CronRunLogConfig;
+  readonly failureAlert?: CronFailureAlert;
 }
 
 export interface KlausConfig {

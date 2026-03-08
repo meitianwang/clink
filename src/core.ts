@@ -649,6 +649,50 @@ export class ChatSessionManager {
     }
   }
 
+  /**
+   * Lightweight chat: skips persona/skills/memory in system prompt.
+   * Used by cron tasks with lightContext: true for faster execution.
+   */
+  async chatLight(sessionKey: string, prompt: string): Promise<string | null> {
+    await this.evictIfNeeded();
+
+    // Create a session with minimal system prompt (no persona, skills, memory)
+    const existing = this.sessions.get(sessionKey);
+    if (existing) {
+      // LRU update: move to end
+      this.sessions.delete(sessionKey);
+      this.sessions.set(sessionKey, existing);
+    } else {
+      const chat = new ClaudeChat({
+        systemPrompt: "You are a helpful assistant. Be concise.",
+        model: this.options.model,
+      });
+
+      // Restore from store if available
+      if (this.store) {
+        const persisted = this.store.get(sessionKey);
+        if (persisted && this.store.isFresh(sessionKey, this.idleMs)) {
+          chat.restoreSessionId(persisted.sessionId);
+          if (persisted.model) chat.setModel(persisted.model);
+        }
+      }
+
+      this.sessions.set(sessionKey, chat);
+    }
+
+    const session = this.sessions.get(sessionKey)!;
+    const result = await session.chat(prompt);
+
+    if (result !== null) {
+      this.persistSession(sessionKey, session);
+      this.store?.save().catch((err) => {
+        console.error("[SessionStore] Save failed:", err);
+      });
+    }
+
+    return result;
+  }
+
   setModel(sessionKey: string, model: string): void {
     const session = this.getSession(sessionKey);
     session.setModel(model);
