@@ -32,12 +32,32 @@ export interface CronRunRecord {
 export class CronScheduler {
   private readonly jobs = new Map<string, Cron>();
   private readonly lastRuns = new Map<string, CronRunRecord>();
+  private readonly running = new Set<string>();
   private readonly tasks: readonly CronTask[];
   private readonly sessions: ChatSessionManager;
 
   constructor(tasks: readonly CronTask[], sessions: ChatSessionManager) {
-    this.tasks = tasks;
+    this.tasks = this.deduplicateTasks(tasks);
     this.sessions = sessions;
+  }
+
+  /** Deduplicate tasks by ID, warn on conflicts, keep last occurrence. */
+  private deduplicateTasks(tasks: readonly CronTask[]): readonly CronTask[] {
+    const seen = new Map<string, number>();
+    const result: CronTask[] = [];
+    for (const task of tasks) {
+      const prev = seen.get(task.id);
+      if (prev !== undefined) {
+        console.warn(
+          `[Cron] Duplicate task ID "${task.id}", overriding previous definition`,
+        );
+        result[prev] = task;
+      } else {
+        seen.set(task.id, result.length);
+        result.push(task);
+      }
+    }
+    return result;
   }
 
   start(): void {
@@ -106,8 +126,15 @@ export class CronScheduler {
   }
 
   private async executeTask(task: CronTask): Promise<void> {
+    // Skip if this task is already running (prevent overlap)
+    if (this.running.has(task.id)) {
+      console.log(`[Cron] Task "${task.id}" skipped (still running)`);
+      return;
+    }
+
     const sessionKey = `cron:${task.id}`;
     const startedAt = Date.now();
+    this.running.add(task.id);
 
     console.log(
       `[Cron] Executing task "${task.id}": ${task.prompt.slice(0, 80)}`,
@@ -149,6 +176,8 @@ export class CronScheduler {
       this.lastRuns.set(task.id, record);
 
       console.error(`[Cron] Task "${task.id}" failed: ${errMsg}`);
+    } finally {
+      this.running.delete(task.id);
     }
   }
 
