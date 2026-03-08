@@ -328,7 +328,7 @@ async function collectFeishuConfig(
   const cfg: Record<string, unknown> = {
     app_id: result.app_id,
     app_secret: result.app_secret,
-    mode,
+    mode: String(mode),
   };
 
   if (mode === "webhook") {
