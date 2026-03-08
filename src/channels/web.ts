@@ -33,7 +33,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { mkdirSync, watch, type FSWatcher } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
 import type { ChannelPlugin } from "./types.js";
@@ -104,14 +104,28 @@ setInterval(() => {
   }
 }, 5 * 60_000);
 
+/** Allowed directory prefixes for downloadable files. */
+const DOWNLOAD_ALLOWED_DIRS = ["/tmp", tmpdir()];
+
 function registerDownloadToken(
   filePath: string,
   userId: string,
 ): { token: string; name: string } {
+  // Resolve to absolute path and block path traversal
+  const resolved = resolve(filePath);
+  const allowed = DOWNLOAD_ALLOWED_DIRS.some(
+    (dir) => resolved === dir || resolved.startsWith(dir + "/"),
+  );
+  if (!allowed) {
+    throw new Error(
+      `Download path not allowed: ${resolved} (must be under /tmp)`,
+    );
+  }
+
   const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
-  const name = filePath.split("/").pop() ?? "file";
+  const name = resolved.split("/").pop() ?? "file";
   downloadTokens.set(token, {
-    path: filePath,
+    path: resolved,
     name,
     userId,
     expiresAt: Date.now() + DOWNLOAD_TOKEN_TTL_MS,
@@ -475,9 +489,6 @@ async function processUserMessage(
     `[Web] Received (${userId.slice(0, 8)}): ${trimmedText.slice(0, 120)}${mediaLabel}`,
   );
 
-  // Track file paths from Write tool starts (keyed by toolUseId)
-  const pendingWritePaths = new Map<string, string>();
-
   // Stream tool events to the client via WebSocket
   const onToolEvent: ToolEventCallback = (event) => {
     try {
@@ -486,32 +497,6 @@ async function processUserMessage(
         data: formatToolEvent(event),
         sessionId,
       });
-
-      // Track Write tool file creation for download
-      if (event.toolName === "Write" && event.type === "tool_start") {
-        const filePath = String(event.input?.file_path ?? "");
-        if (filePath) pendingWritePaths.set(event.toolUseId, filePath);
-      }
-      if (
-        event.toolName === "Write" &&
-        event.type === "tool_result" &&
-        !event.isError
-      ) {
-        const filePath = pendingWritePaths.get(event.toolUseId);
-        pendingWritePaths.delete(event.toolUseId);
-        if (filePath) {
-          const { token, name } = registerDownloadToken(filePath, userId);
-          sendWsEvent(userId, {
-            type: "file",
-            url: `/api/files/${token}`,
-            name,
-            sessionId,
-          });
-          console.log(
-            `[Web] File available for download: ${name} (${token.slice(0, 8)}...)`,
-          );
-        }
-      }
     } catch (err) {
       console.error("[Web] Failed to send tool event:", err);
     }
@@ -561,10 +546,33 @@ async function processUserMessage(
       return;
     }
 
-    console.log(`[Web] Replying: ${reply.slice(0, 100)}...`);
+    // Extract [[file:/path/to/file]] markers and register downloads
+    const fileMarkerRe = /\[\[file:(.+?)\]\]/g;
+    let displayText = reply;
+    let match: RegExpExecArray | null;
+    while ((match = fileMarkerRe.exec(reply)) !== null) {
+      const filePath = match[1].trim();
+      try {
+        const { token, name } = registerDownloadToken(filePath, userId);
+        sendWsEvent(userId, {
+          type: "file",
+          url: `/api/files/${token}`,
+          name,
+          sessionId,
+        });
+        console.log(
+          `[Web] File available for download: ${name} (${token.slice(0, 8)}...)`,
+        );
+      } catch (err) {
+        console.error(`[Web] Failed to register file ${filePath}:`, err);
+      }
+    }
+    displayText = displayText.replace(fileMarkerRe, "").trim();
+
+    console.log(`[Web] Replying: ${displayText.slice(0, 100)}...`);
     sendWsEvent(userId, {
       type: "message",
-      text: reply,
+      text: displayText,
       id: Date.now().toString(36),
       sessionId,
     });
