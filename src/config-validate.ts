@@ -10,7 +10,7 @@ import { CONFIG_FILE } from "./config.js";
 import { listChannelIds } from "./channels/types.js";
 
 // Builtin channel IDs — fallback when registry is empty (e.g. doctor command)
-const BUILTIN_CHANNELS = ["qq", "wecom", "web", "feishu"] as const;
+const BUILTIN_CHANNELS = ["web"] as const;
 
 function resolveKnownChannels(): readonly string[] {
   const registered = listChannelIds();
@@ -46,11 +46,6 @@ type FieldSpec = {
   readonly validate?: (value: unknown) => string | null;
 };
 
-const QQ_FIELDS: readonly FieldSpec[] = [
-  { key: "appid", env: "QQ_BOT_APPID", label: "QQ Bot App ID" },
-  { key: "secret", env: "QQ_BOT_SECRET", label: "QQ Bot Secret" },
-];
-
 const WEB_FIELDS: readonly FieldSpec[] = [
   {
     key: "port",
@@ -59,70 +54,6 @@ const WEB_FIELDS: readonly FieldSpec[] = [
     optional: true,
     validate: (v) => {
       if (v == null || v === "") return null; // has default 3000
-      const n = Number(v);
-      return Number.isInteger(n) && n >= 1 && n <= 65535
-        ? null
-        : "must be a valid port number (1–65535)";
-    },
-  },
-];
-
-const FEISHU_FIELDS: readonly FieldSpec[] = [
-  { key: "app_id", env: "FEISHU_APP_ID", label: "Feishu App ID" },
-  { key: "app_secret", env: "FEISHU_APP_SECRET", label: "Feishu App Secret" },
-  {
-    key: "mode",
-    label: "Connection mode",
-    optional: true,
-    validate: (v) => {
-      if (v == null || v === "") return null; // defaults to websocket
-      return v === "websocket" || v === "webhook"
-        ? null
-        : 'must be "websocket" or "webhook"';
-    },
-  },
-  {
-    key: "port",
-    env: "FEISHU_PORT",
-    label: "Webhook Port",
-    optional: true,
-    validate: (v) => {
-      if (v == null || v === "") return null; // has default 9000
-      const n = Number(v);
-      return Number.isInteger(n) && n >= 1 && n <= 65535
-        ? null
-        : "must be a valid port number (1–65535)";
-    },
-  },
-];
-
-const WECOM_FIELDS: readonly FieldSpec[] = [
-  { key: "corp_id", env: "WECOM_CORP_ID", label: "Corp ID" },
-  { key: "corp_secret", env: "WECOM_CORP_SECRET", label: "Corp Secret" },
-  {
-    key: "agent_id",
-    env: "WECOM_AGENT_ID",
-    label: "Agent ID",
-    validate: (v) => {
-      const n = Number(v);
-      return Number.isInteger(n) && n > 0 ? null : "must be a positive integer";
-    },
-  },
-  { key: "token", env: "WECOM_TOKEN", label: "Token" },
-  {
-    key: "encoding_aes_key",
-    env: "WECOM_ENCODING_AES_KEY",
-    label: "Encoding AES Key",
-    validate: (v) =>
-      typeof v === "string" && v.length === 43
-        ? null
-        : "must be exactly 43 characters (Base64)",
-  },
-  {
-    key: "port",
-    env: "WECOM_PORT",
-    label: "HTTP Port",
-    validate: (v) => {
       const n = Number(v);
       return Number.isInteger(n) && n >= 1 && n <= 65535
         ? null
@@ -326,14 +257,8 @@ function validateTunnelConfig(tunnelRaw: unknown, issues: ConfigIssue[]): void {
 
 function channelFieldSpecs(channel: string): readonly FieldSpec[] | null {
   switch (channel) {
-    case "qq":
-      return QQ_FIELDS;
-    case "wecom":
-      return WECOM_FIELDS;
     case "web":
       return WEB_FIELDS;
-    case "feishu":
-      return FEISHU_FIELDS;
     default:
       return null;
   }

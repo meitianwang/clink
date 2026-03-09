@@ -3,10 +3,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import yaml from "js-yaml";
 import type {
-  QQBotConfig,
-  WeComConfig,
   WebConfig,
-  FeishuConfig,
   SessionConfig,
   TranscriptsConfig,
   TunnelConfig,
@@ -38,7 +35,7 @@ export function getChannelNames(): string[] {
   const cfg = loadConfig();
   const raw = cfg.channel;
   if (Array.isArray(raw)) return raw.map(String);
-  return [(raw as string) ?? "qq"];
+  return [(raw as string) ?? "web"];
 }
 
 /**
@@ -84,53 +81,6 @@ export function removeChannelFromConfig(channelId: string): boolean {
   delete cfg[channelId];
   saveConfig(cfg);
   return true;
-}
-
-export function loadQQBotConfig(): QQBotConfig {
-  const cfg = (loadConfig().qq as Record<string, string>) ?? {};
-  return {
-    appid: cfg.appid ?? process.env.QQ_BOT_APPID ?? "",
-    secret: cfg.secret ?? process.env.QQ_BOT_SECRET ?? "",
-  };
-}
-
-export function loadWeComConfig(): WeComConfig {
-  const cfg = (loadConfig().wecom as Record<string, unknown>) ?? {};
-  return {
-    corpId: (cfg.corp_id as string) ?? process.env.WECOM_CORP_ID ?? "",
-    corpSecret:
-      (cfg.corp_secret as string) ?? process.env.WECOM_CORP_SECRET ?? "",
-    agentId: Number(cfg.agent_id ?? process.env.WECOM_AGENT_ID ?? 0),
-    token: (cfg.token as string) ?? process.env.WECOM_TOKEN ?? "",
-    encodingAesKey:
-      (cfg.encoding_aes_key as string) ??
-      process.env.WECOM_ENCODING_AES_KEY ??
-      "",
-    port: Number(cfg.port ?? process.env.WECOM_PORT ?? 8080),
-  };
-}
-
-export function loadFeishuConfig(): FeishuConfig {
-  const cfg = (loadConfig().feishu as Record<string, unknown>) ?? {};
-  const mode = String(cfg.mode ?? process.env.FEISHU_MODE ?? "websocket");
-  const domain =
-    (cfg.domain as string) ?? process.env.FEISHU_DOMAIN ?? undefined;
-  return {
-    appId: (cfg.app_id as string) ?? process.env.FEISHU_APP_ID ?? "",
-    appSecret:
-      (cfg.app_secret as string) ?? process.env.FEISHU_APP_SECRET ?? "",
-    mode: mode === "webhook" ? "webhook" : "websocket",
-    port: Number(cfg.port ?? process.env.FEISHU_PORT ?? 9000),
-    encryptKey:
-      (cfg.encrypt_key as string) ??
-      process.env.FEISHU_ENCRYPT_KEY ??
-      undefined,
-    verificationToken:
-      (cfg.verification_token as string) ??
-      process.env.FEISHU_VERIFICATION_TOKEN ??
-      undefined,
-    domain,
-  };
 }
 
 function parseTunnelConfig(

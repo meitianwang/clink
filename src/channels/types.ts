@@ -43,7 +43,7 @@ export type ChannelPlugin = {
   readonly start: (handler: Handler) => Promise<void>;
   /**
    * Proactively send a message to a user/target. Optional — not all channels
-   * support unsolicited messages (e.g., QQ SDK only supports replies).
+   * support unsolicited messages.
    * Used by cron scheduler for result delivery.
    */
   readonly deliver?: (to: string, text: string) => Promise<void>;

@@ -8,7 +8,7 @@
  */
 
 // ---------------------------------------------------------------------------
-// Character-based chunking (QQ, general purpose)
+// Character-based chunking (general purpose)
 // ---------------------------------------------------------------------------
 
 /**
@@ -53,7 +53,7 @@ export function chunkText(text: string, limit: number): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Byte-based chunking (WeChat Work: 2048 byte limit for text messages)
+// Byte-based chunking (for platforms with byte-based message limits)
 // ---------------------------------------------------------------------------
 
 /**

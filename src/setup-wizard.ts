@@ -2,7 +2,6 @@ import * as p from "@clack/prompts";
 import pc from "picocolors";
 import { execSync, execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
 import {
   CONFIG_FILE,
   loadConfig,
@@ -11,8 +10,6 @@ import {
   removeChannelFromConfig,
 } from "./config.js";
 import { setLang, t } from "./i18n.js";
-
-const require = createRequire(import.meta.url);
 
 function which(cmd: string): string | null {
   try {
@@ -40,87 +37,6 @@ async function checkPrerequisites(): Promise<boolean> {
   }
 
   return nodeOk && claudeOk;
-}
-
-async function collectQQConfig(
-  prev?: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  p.log.info(t("qq_guide"));
-
-  const result = await p.group({
-    appid: () =>
-      p.text({
-        message: t("qq_appid"),
-        defaultValue: (prev?.appid as string) ?? "",
-        validate: (v) => (v ? undefined : "Required"),
-      }),
-    secret: () =>
-      p.text({
-        message: t("qq_secret"),
-        defaultValue: (prev?.secret as string) ?? "",
-        validate: (v) => (v ? undefined : "Required"),
-      }),
-  });
-
-  if (p.isCancel(result)) process.exit(0);
-  return { appid: result.appid, secret: result.secret };
-}
-
-async function collectWeComConfig(
-  prev?: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  p.log.info(t("wecom_guide"));
-
-  const prevPort = prev?.port != null ? String(prev.port) : "8080";
-
-  const result = await p.group({
-    corp_id: () =>
-      p.text({
-        message: t("wecom_corp_id"),
-        defaultValue: (prev?.corp_id as string) ?? "",
-        validate: (v) => (v ? undefined : "Required"),
-      }),
-    corp_secret: () =>
-      p.text({
-        message: t("wecom_secret"),
-        defaultValue: (prev?.corp_secret as string) ?? "",
-        validate: (v) => (v ? undefined : "Required"),
-      }),
-    agent_id: () =>
-      p.text({
-        message: t("wecom_agent_id"),
-        defaultValue: prev?.agent_id != null ? String(prev.agent_id) : "",
-        validate: (v) => (/^\d+$/.test(v) ? undefined : "Must be a number"),
-      }),
-    token: () =>
-      p.text({
-        message: t("wecom_token"),
-        defaultValue: (prev?.token as string) ?? "",
-        validate: (v) => (v ? undefined : "Required"),
-      }),
-    encoding_aes_key: () =>
-      p.text({
-        message: t("wecom_aes_key"),
-        defaultValue: (prev?.encoding_aes_key as string) ?? "",
-        validate: (v) => (v ? undefined : "Required"),
-      }),
-    port: () =>
-      p.text({
-        message: t("wecom_port"),
-        defaultValue: prevPort,
-        placeholder: prevPort,
-      }),
-  });
-
-  if (p.isCancel(result)) process.exit(0);
-  return {
-    corp_id: result.corp_id,
-    corp_secret: result.corp_secret,
-    agent_id: Number(result.agent_id),
-    token: result.token,
-    encoding_aes_key: result.encoding_aes_key,
-    port: Number(result.port) || 8080,
-  };
 }
 
 function getInstallCommand(
@@ -301,129 +217,6 @@ async function collectWebConfig(
   };
 }
 
-async function collectFeishuConfig(
-  prev?: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  p.log.info(t("feishu_guide"));
-
-  const result = await p.group({
-    app_id: () =>
-      p.text({
-        message: t("feishu_app_id"),
-        defaultValue: (prev?.app_id as string) ?? "",
-        validate: (v) => (v ? undefined : "Required"),
-      }),
-    app_secret: () =>
-      p.text({
-        message: t("feishu_app_secret"),
-        defaultValue: (prev?.app_secret as string) ?? "",
-        validate: (v) => (v ? undefined : "Required"),
-      }),
-  });
-  if (p.isCancel(result)) process.exit(0);
-
-  const mode = await p.select({
-    message: t("feishu_mode"),
-    options: [
-      { value: "websocket" as const, label: t("feishu_mode_ws") },
-      { value: "webhook" as const, label: t("feishu_mode_webhook") },
-    ],
-  });
-  if (p.isCancel(mode)) process.exit(0);
-
-  const cfg: Record<string, unknown> = {
-    app_id: result.app_id,
-    app_secret: result.app_secret,
-    mode: String(mode),
-  };
-
-  if (mode === "webhook") {
-    const webhookResult = await p.group({
-      port: () =>
-        p.text({
-          message: t("feishu_port"),
-          defaultValue: prev?.port != null ? String(prev.port) : "9000",
-          placeholder: "9000",
-        }),
-      encrypt_key: () =>
-        p.text({
-          message: t("feishu_encrypt_key"),
-          defaultValue: (prev?.encrypt_key as string) ?? "",
-        }),
-      verification_token: () =>
-        p.text({
-          message: t("feishu_verification_token"),
-          defaultValue: (prev?.verification_token as string) ?? "",
-        }),
-    });
-    if (p.isCancel(webhookResult)) process.exit(0);
-
-    cfg.port = Number(webhookResult.port) || 9000;
-    if (webhookResult.encrypt_key) cfg.encrypt_key = webhookResult.encrypt_key;
-    if (webhookResult.verification_token)
-      cfg.verification_token = webhookResult.verification_token;
-  }
-
-  return cfg;
-}
-
-async function verifyFeishuCredentials(
-  appId: string,
-  appSecret: string,
-): Promise<boolean> {
-  const s = p.spinner();
-  s.start(t("feishu_verify"));
-
-  try {
-    const resp = await fetch(
-      "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
-      },
-    );
-    const data = (await resp.json()) as { code?: number; msg?: string };
-    if (data.code !== 0) {
-      s.stop(pc.red(`${t("feishu_verify_fail")}: ${data.msg ?? "unknown"}`));
-      return false;
-    }
-    s.stop(pc.green(t("feishu_verify_ok")));
-    return true;
-  } catch (err) {
-    s.stop(pc.red(`${err}`));
-    return false;
-  }
-}
-
-async function verifyWeComToken(
-  corpId: string,
-  corpSecret: string,
-): Promise<boolean> {
-  const s = p.spinner();
-  s.start(t("wecom_verify"));
-
-  try {
-    const url = new URL("https://qyapi.weixin.qq.com/cgi-bin/gettoken");
-    url.searchParams.set("corpid", corpId);
-    url.searchParams.set("corpsecret", corpSecret);
-
-    const resp = await fetch(url.toString());
-    const data = (await resp.json()) as { errcode?: number; errmsg?: string };
-
-    if (data.errcode && data.errcode !== 0) {
-      s.stop(pc.red(`API error: ${data.errmsg ?? "unknown"}`));
-      return false;
-    }
-
-    s.stop(pc.green(t("wecom_verify_ok")));
-    return true;
-  } catch (err) {
-    s.stop(pc.red(`${err}`));
-    return false;
-  }
-}
-
 export async function runSetup(): Promise<void> {
   p.intro(pc.bgCyan(pc.black(t("setup_title"))));
 
@@ -491,23 +284,11 @@ export async function runSetup(): Promise<void> {
     message: t("choose_channel"),
     options: [
       {
-        value: "qq" as const,
-        label: `qq — ${t("channel_qq")}`,
-      },
-      {
-        value: "wecom" as const,
-        label: `wecom — ${t("channel_wecom")}`,
-      },
-      {
         value: "web" as const,
         label: `web — ${t("channel_web")}`,
       },
-      {
-        value: "feishu" as const,
-        label: `feishu — ${t("channel_feishu")}`,
-      },
     ],
-    initialValues: prevChannels as ("qq" | "wecom" | "web" | "feishu")[],
+    initialValues: prevChannels as "web"[],
     required: true,
   });
   if (p.isCancel(channels)) process.exit(0);
@@ -516,72 +297,10 @@ export async function runSetup(): Promise<void> {
   const channelConfigs: Record<string, Record<string, unknown>> = {};
 
   for (const channel of channels) {
-    if (channel === "qq") {
-      p.log.step(t("qq_title"));
-
-      // Install qq-group-bot if missing
-      try {
-        require.resolve("qq-group-bot");
-      } catch {
-        const s2 = p.spinner();
-        s2.start(t("installing_qq_dep"));
-        try {
-          execSync("npm install -g qq-group-bot", { stdio: "pipe" });
-          s2.stop(pc.green(t("qq_dep_ok")));
-        } catch {
-          s2.stop(pc.yellow(t("qq_dep_fail")));
-        }
-      }
-
-      const prevQQ = prevConfig?.qq as Record<string, unknown> | undefined;
-      channelConfigs.qq = await collectQQConfig(prevQQ);
-      p.log.success(t("qq_verify_ok"));
-    } else if (channel === "wecom") {
-      p.log.step(t("wecom_title"));
-      const prevWeCom = prevConfig?.wecom as
-        | Record<string, unknown>
-        | undefined;
-      channelConfigs.wecom = await collectWeComConfig(prevWeCom);
-
-      // Verify WeCom credentials
-      const ok = await verifyWeComToken(
-        channelConfigs.wecom.corp_id as string,
-        channelConfigs.wecom.corp_secret as string,
-      );
-      if (!ok) {
-        const saveAnyway = await p.confirm({
-          message: lang === "zh" ? "仍然保存配置?" : "Save config anyway?",
-        });
-        if (p.isCancel(saveAnyway) || !saveAnyway) {
-          p.outro(lang === "zh" ? "已取消。" : "Cancelled.");
-          return;
-        }
-      }
-    } else if (channel === "web") {
+    if (channel === "web") {
       p.log.step(t("web_title"));
       const prevWeb = prevConfig?.web as Record<string, unknown> | undefined;
       channelConfigs.web = await collectWebConfig(prevWeb);
-    } else if (channel === "feishu") {
-      p.log.step(t("feishu_title"));
-      const prevFeishu = prevConfig?.feishu as
-        | Record<string, unknown>
-        | undefined;
-      channelConfigs.feishu = await collectFeishuConfig(prevFeishu);
-
-      // Verify Feishu credentials
-      const ok = await verifyFeishuCredentials(
-        channelConfigs.feishu.app_id as string,
-        channelConfigs.feishu.app_secret as string,
-      );
-      if (!ok) {
-        const saveAnyway = await p.confirm({
-          message: lang === "zh" ? "仍然保存配置?" : "Save config anyway?",
-        });
-        if (p.isCancel(saveAnyway) || !saveAnyway) {
-          p.outro(lang === "zh" ? "已取消。" : "Cancelled.");
-          return;
-        }
-      }
     }
   }
 
@@ -694,18 +413,12 @@ export async function runSetup(): Promise<void> {
 // Channel labels (shared by add/remove)
 // ---------------------------------------------------------------------------
 
-const ALL_CHANNELS = ["qq", "wecom", "web", "feishu"] as const;
+const ALL_CHANNELS = ["web"] as const;
 
 function channelLabel(id: string): string {
   switch (id) {
-    case "qq":
-      return `qq — ${t("channel_qq")}`;
-    case "wecom":
-      return `wecom — ${t("channel_wecom")}`;
     case "web":
       return `web — ${t("channel_web")}`;
-    case "feishu":
-      return `feishu — ${t("channel_feishu")}`;
     default:
       return id;
   }
@@ -719,64 +432,9 @@ async function collectAndVerifyChannel(
   channel: string,
   prev?: Record<string, unknown>,
 ): Promise<Record<string, unknown> | null> {
-  if (channel === "qq") {
-    p.log.step(t("qq_title"));
-    try {
-      require.resolve("qq-group-bot");
-    } catch {
-      const s2 = p.spinner();
-      s2.start(t("installing_qq_dep"));
-      try {
-        execSync("npm install -g qq-group-bot", { stdio: "pipe" });
-        s2.stop(pc.green(t("qq_dep_ok")));
-      } catch {
-        s2.stop(pc.yellow(t("qq_dep_fail")));
-      }
-    }
-    const cfg = await collectQQConfig(prev);
-    p.log.success(t("qq_verify_ok"));
-    return cfg;
-  }
-
-  if (channel === "wecom") {
-    p.log.step(t("wecom_title"));
-    const cfg = await collectWeComConfig(prev);
-    const ok = await verifyWeComToken(
-      cfg.corp_id as string,
-      cfg.corp_secret as string,
-    );
-    if (!ok) {
-      const saveAnyway = await p.confirm({
-        message: t("setup_cancelled").includes("取消")
-          ? "仍然保存配置?"
-          : "Save config anyway?",
-      });
-      if (p.isCancel(saveAnyway) || !saveAnyway) return null;
-    }
-    return cfg;
-  }
-
   if (channel === "web") {
     p.log.step(t("web_title"));
     return collectWebConfig(prev);
-  }
-
-  if (channel === "feishu") {
-    p.log.step(t("feishu_title"));
-    const cfg = await collectFeishuConfig(prev);
-    const ok = await verifyFeishuCredentials(
-      cfg.app_id as string,
-      cfg.app_secret as string,
-    );
-    if (!ok) {
-      const saveAnyway = await p.confirm({
-        message: t("setup_cancelled").includes("取消")
-          ? "仍然保存配置?"
-          : "Save config anyway?",
-      });
-      if (p.isCancel(saveAnyway) || !saveAnyway) return null;
-    }
-    return cfg;
   }
 
   return null;

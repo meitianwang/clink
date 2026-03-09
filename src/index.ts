@@ -1,8 +1,5 @@
 import { existsSync } from "node:fs";
-import { qqPlugin } from "./channels/qq.js";
-import { wecomPlugin } from "./channels/wecom.js";
 import { webPlugin } from "./channels/web.js";
-import { feishuPlugin } from "./channels/feishu.js";
 import {
   registerChannel,
   getChannel,
@@ -35,10 +32,7 @@ import { parseCronMarkers, type CronMarkerAction } from "./cron-marker.js";
 // Channel registration
 // ---------------------------------------------------------------------------
 
-registerChannel(qqPlugin);
-registerChannel(wecomPlugin);
 registerChannel(webPlugin);
-registerChannel(feishuPlugin);
 
 // ---------------------------------------------------------------------------
 // Model alias mapping

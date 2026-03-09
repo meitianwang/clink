@@ -14,9 +14,6 @@
  *   - Memory flush: a silent agent turn is triggered periodically to persist context.
  *
  * Memory key isolation:
- *   "c2c:abc"           → "c2c__abc"       (QQ private)
- *   "group:xyz"         → "group__xyz"      (QQ group)
- *   "wecom:u1"          → "wecom__u1"       (WeCom)
  *   "web:user1:sess2"   → "web__user1"      (Web — strip session suffix)
  */
 

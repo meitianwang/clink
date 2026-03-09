@@ -1,7 +1,7 @@
 {
   "name": "klaus-ai",
   "version": "0.1.30",
-  "description": "Use Claude Code from QQ, WeChat Work, or any messaging platform",
+  "description": "Use Claude Code from a browser-based Web Chat UI",
   "type": "module",
   "bin": {
     "klaus": "./dist/index.js"
@@ -26,9 +26,7 @@
     "claude",
     "claude-code",
     "chatbot",
-    "qq-bot",
-    "wecom",
-    "wechat-work"
+    "web-chat"
   ],
   "license": "MIT",
   "dependencies": {
