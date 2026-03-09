@@ -580,66 +580,89 @@ async function handleCronCommand(
   return t("cmd_cron_help");
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const cmd = process.argv[2] ?? "start";
 
-  const runWizard = (
+  const runWizard = async (
     fn: (m: typeof import("./setup-wizard.js")) => Promise<void>,
-  ) =>
-    import("./setup-wizard.js")
-      .then(fn)
-      .then(() => process.exit(0))
-      .catch((err) => {
-        console.error(err);
-        process.exit(1);
-      });
+  ) => {
+    const m = await import("./setup-wizard.js");
+    await fn(m);
+    process.exit(0);
+  };
 
   switch (cmd) {
     case "setup": {
       const sub = process.argv[3];
       if (sub === "--add-channel") {
-        runWizard((m) => m.runAddChannel());
+        await runWizard((m) => m.runAddChannel());
       } else if (sub === "--remove-channel") {
-        runWizard((m) => m.runRemoveChannel());
+        await runWizard((m) => m.runRemoveChannel());
       } else {
-        runWizard((m) => m.runSetup());
+        await runWizard((m) => m.runSetup());
       }
       break;
     }
     case "add-channel":
-      runWizard((m) => m.runAddChannel());
+      await runWizard((m) => m.runAddChannel());
       break;
     case "remove-channel":
-      runWizard((m) => m.runRemoveChannel());
+      await runWizard((m) => m.runRemoveChannel());
       break;
-    case "doctor":
-      import("./doctor.js")
-        .then((m) => m.runDoctor())
-        .then(() => process.exit(0))
-        .catch((err) => {
-          console.error(err);
-          process.exit(1);
-        });
+    case "doctor": {
+      const doc = await import("./doctor.js");
+      await doc.runDoctor();
+      process.exit(0);
       break;
-    case "start":
-      start().catch((err) => {
-        console.error(err);
-        process.exit(1);
-      });
+    }
+    case "start": {
+      const flags = process.argv.slice(3);
+      const foreground = flags.includes("--foreground") || flags.includes("-f");
+      const daemon = await import("./daemon.js");
+
+      if (foreground) {
+        daemon.registerForegroundPid();
+        await start();
+      } else {
+        daemon.daemonize();
+      }
       break;
+    }
+    case "stop": {
+      const daemon = await import("./daemon.js");
+      await daemon.stopDaemon();
+      break;
+    }
+    case "status": {
+      const daemon = await import("./daemon.js");
+      daemon.showStatus();
+      break;
+    }
+    case "logs": {
+      const daemon = await import("./daemon.js");
+      daemon.tailLogs();
+      break;
+    }
     default:
       console.log(
         "Klaus — Use Claude Code from any messaging platform\n\n" +
           "Usage: klaus [command]\n\n" +
           "Commands:\n" +
+          "  start              Start the bot in background (default)\n" +
+          "  start -f           Start in foreground\n" +
+          "  stop               Stop the background daemon\n" +
+          "  status             Show daemon status\n" +
+          "  logs               Tail daemon logs\n" +
           "  setup              Interactive setup wizard\n" +
           "  add-channel        Add a channel to existing config\n" +
           "  remove-channel     Remove a channel from config\n" +
-          "  start              Start the bot (default)\n" +
           "  doctor             Diagnose environment issues\n",
       );
       process.exit(1);
   }
 }
 
-main();
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
