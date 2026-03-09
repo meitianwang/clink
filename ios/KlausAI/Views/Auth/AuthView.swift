@@ -10,10 +10,12 @@ struct AuthView: View {
             ScrollView {
                 VStack(spacing: 32) {
                     // Logo
-                    VStack(spacing: 8) {
-                        Image(systemName: "bubble.left.and.bubble.right.fill")
-                            .font(.system(size: 48))
-                            .foregroundStyle(.primary)
+                    VStack(spacing: 12) {
+                        Image("KlausLogo")
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 80, height: 80)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
                         Text(L10n.appName)
                             .font(.largeTitle.bold())
                     }

@@ -18,8 +18,18 @@ struct MainView: View {
                     chatVM: chatVM,
                     selectedSessionId: $selectedSessionId
                 )
-                .navigationTitle(L10n.appName)
                 .toolbar {
+                    ToolbarItem(placement: .navigationBarLeading) {
+                        HStack(spacing: 8) {
+                            Image("KlausLogo")
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 28, height: 28)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                            Text(L10n.appName)
+                                .font(.headline)
+                        }
+                    }
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button {
                             showSettings = true

@@ -13,8 +13,17 @@ struct MessageBubble: View {
             }
 
             // Message content
-            HStack {
+            HStack(alignment: .top, spacing: 8) {
                 if message.role == .user { Spacer(minLength: 60) }
+
+                // Assistant avatar
+                if message.role == .assistant {
+                    Image("KlausAvatar")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 32, height: 32)
+                        .clipShape(Circle())
+                }
 
                 VStack(alignment: .leading, spacing: 4) {
                     if message.isStreaming && message.content.isEmpty {
