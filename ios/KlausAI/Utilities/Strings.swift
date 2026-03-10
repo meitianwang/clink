@@ -46,6 +46,8 @@ enum L10n {
     static let about = "关于"
     static let version = "版本"
     static let platform = "平台"
+    static let editName = "修改昵称"
+    static let save = "保存"
     static let logOut = "退出登录"
     static let logOutConfirm = "确定退出？"
     static let done = "完成"

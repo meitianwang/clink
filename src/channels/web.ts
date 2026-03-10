@@ -67,6 +67,7 @@ import {
   handleAuthLogin,
   handleAuthLogout,
   handleAuthMe,
+  handleAuthProfile,
   handleGoogleRedirect,
   handleGoogleCallback,
 } from "./web-auth.js";
@@ -1231,6 +1232,21 @@ async function handleRequest(
         return;
       }
       return handleAuthMe(req, res, userStoreRef, cfg);
+    case "/api/auth/profile": {
+      const profIp =
+        (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+        req.socket.remoteAddress ||
+        "";
+      if (!checkRateLimit(profIp)) {
+        jsonResponse(res, 429, { error: "too_many_requests" });
+        return;
+      }
+      if (!userStoreRef) {
+        jsonResponse(res, 503, { error: "not ready" });
+        return;
+      }
+      return handleAuthProfile(req, res, userStoreRef);
+    }
     case "/api/auth/google":
       return handleGoogleRedirect(req, res, cfg);
     case "/api/auth/google/callback":

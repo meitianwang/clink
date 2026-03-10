@@ -206,6 +206,7 @@ export class UserStore {
   private readonly stmtUpdateLastLogin: Statement;
   private readonly stmtSetActive: Statement;
   private readonly stmtSetRole: Statement;
+  private readonly stmtSetDisplayName: Statement;
   private readonly stmtLinkGoogle: Statement;
   private readonly stmtListUsers: Statement;
   private readonly stmtCountUsers: Statement;
@@ -252,6 +253,9 @@ export class UserStore {
     );
     this.stmtSetRole = this.db.prepare(
       "UPDATE users SET role = ? WHERE id = ?",
+    );
+    this.stmtSetDisplayName = this.db.prepare(
+      "UPDATE users SET display_name = ? WHERE id = ?",
     );
     this.stmtLinkGoogle = this.db.prepare(
       "UPDATE users SET google_id = ? WHERE id = ?",
@@ -487,6 +491,11 @@ export class UserStore {
 
   setRole(userId: string, role: "admin" | "user"): boolean {
     const result = this.stmtSetRole.run(role, userId);
+    return result.changes > 0;
+  }
+
+  setDisplayName(userId: string, displayName: string): boolean {
+    const result = this.stmtSetDisplayName.run(displayName, userId);
     return result.changes > 0;
   }
 

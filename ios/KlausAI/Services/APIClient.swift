@@ -52,6 +52,12 @@ actor APIClient {
         return response.user
     }
 
+    func updateProfile(displayName: String) async throws -> User {
+        let body = ["displayName": displayName]
+        let response: AuthResponse = try await patch("/api/auth/profile", body: body)
+        return response.user
+    }
+
     // MARK: - Sessions
 
     func listSessions() async throws -> SessionsResponse {
@@ -131,6 +137,20 @@ actor APIClient {
             throw APIError.invalidResponse
         }
         let request = URLRequest(url: url)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response, data: data)
+        return try decoder.decode(T.self, from: data)
+    }
+
+    private func patch<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {
+        guard let url = URL(string: path, relativeTo: baseURL) else {
+            throw APIError.invalidResponse
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(body)
+
         let (data, response) = try await session.data(for: request)
         try validateResponse(response, data: data)
         return try decoder.decode(T.self, from: data)

@@ -61,6 +61,11 @@ final class AppState: ObservableObject {
         connectWebSocket()
     }
 
+    func updateDisplayName(_ name: String) async throws {
+        let user = try await api.updateProfile(displayName: name)
+        currentUser = user
+    }
+
     func logout() async {
         try? await api.logout()
         webSocket.disconnect()

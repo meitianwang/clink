@@ -327,6 +327,56 @@ export function handleAuthMe(
 }
 
 // ---------------------------------------------------------------------------
+// PATCH /api/auth/profile — Update current user's display name
+// ---------------------------------------------------------------------------
+
+export async function handleAuthProfile(
+  req: IncomingMessage,
+  res: ServerResponse,
+  userStore: UserStore,
+): Promise<void> {
+  if (req.method !== "PATCH") {
+    json(res, 405, { error: "method not allowed" });
+    return;
+  }
+
+  const token = getSessionToken(req);
+  const auth = userStore.validateSession(token);
+  if (!auth) {
+    json(res, 401, { error: "not_authenticated" });
+    return;
+  }
+
+  const body = await readBody(req, 1024);
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(body.toString()) as Record<string, unknown>;
+  } catch {
+    json(res, 400, { error: "invalid JSON" });
+    return;
+  }
+
+  const displayName = String(parsed.displayName ?? "").trim();
+  if (!displayName) {
+    json(res, 400, { error: "display_name_required" });
+    return;
+  }
+  if (displayName.length > 50) {
+    json(res, 400, { error: "display_name_too_long" });
+    return;
+  }
+
+  userStore.setDisplayName(auth.user.id, displayName);
+  const updated = userStore.getUserById(auth.user.id);
+  if (!updated) {
+    json(res, 500, { error: "update_failed" });
+    return;
+  }
+
+  json(res, 200, { user: userResponse(updated) });
+}
+
+// ---------------------------------------------------------------------------
 // Google OAuth
 // ---------------------------------------------------------------------------
 

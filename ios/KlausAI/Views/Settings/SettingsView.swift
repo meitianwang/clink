@@ -5,22 +5,37 @@ struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var showLogoutConfirm = false
+    @State private var showEditName = false
+    @State private var editingName = ""
+    @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
             List {
                 if let user = appState.currentUser {
-                    // Account section
+                    // Account section — tap to edit name
                     Section {
-                        HStack(spacing: 14) {
-                            UserAvatarView(name: user.displayName, size: 48)
+                        Button {
+                            editingName = user.displayName
+                            showEditName = true
+                        } label: {
+                            HStack(spacing: 14) {
+                                UserAvatarView(name: user.displayName, size: 48)
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(user.displayName)
-                                    .font(.system(.body, weight: .semibold))
-                                Text(user.email)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(user.displayName)
+                                        .font(.system(.body, weight: .semibold))
+                                        .foregroundStyle(.primary)
+                                    Text(user.email)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
                             }
                         }
                         .padding(.vertical, 4)
@@ -28,13 +43,6 @@ struct SettingsView: View {
 
                     // Info section
                     Section {
-                        HStack {
-                            Label(L10n.roleLabel, systemImage: "person.badge.shield.checkmark")
-                            Spacer()
-                            Text(user.role == "admin" ? "管理员" : "用户")
-                                .foregroundStyle(.secondary)
-                        }
-
                         HStack {
                             Label(L10n.version, systemImage: "info.circle")
                             Spacer()
@@ -68,6 +76,31 @@ struct SettingsView: View {
                         await appState.logout()
                         dismiss()
                     }
+                }
+            }
+            .alert(L10n.editName, isPresented: $showEditName) {
+                TextField(L10n.displayNamePlaceholder, text: $editingName)
+                Button(L10n.dismiss, role: .cancel) {}
+                Button(L10n.save) {
+                    let name = editingName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !name.isEmpty else { return }
+                    Task {
+                        do {
+                            try await appState.updateDisplayName(name)
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                }
+            }
+            .alert(L10n.dismiss, isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("OK") { errorMessage = nil }
+            } message: {
+                if let msg = errorMessage {
+                    Text(msg)
                 }
             }
         }
