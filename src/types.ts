@@ -72,6 +72,8 @@ export interface FrpTunnelConfig {
   readonly remote_port?: number;
   readonly proxy_name?: string;
   readonly tls_enable?: boolean;
+  /** Transport protocol: "tcp" (default) or "websocket" (for CF CDN relay). */
+  readonly transport_protocol?: "tcp" | "websocket";
 }
 
 export type TunnelConfig =

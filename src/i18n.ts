@@ -240,6 +240,32 @@ const TEXTS: Record<string, Record<Lang, string>> = {
       "  macOS: brew install frpc\n" +
       "  其他系统: https://github.com/fatedier/frp/releases",
   },
+  web_tunnel_frp_cf_relay: {
+    en: "Enable Cloudflare CDN relay? (reduces latency ~10x for cross-region)",
+    zh: "启用 Cloudflare CDN 加速? (跨地区延迟降低约 10 倍)",
+  },
+  web_tunnel_frp_cf_relay_domain: {
+    en: "CF relay domain (CF-proxied A record → VPS, e.g. frp.example.com)",
+    zh: "CF 中继域名 (CF 代理的 A 记录 → VPS, 如 frp.example.com)",
+  },
+  web_tunnel_frp_cf_relay_guide: {
+    en:
+      "CF CDN relay routes frpc traffic through Cloudflare's backbone network\n" +
+      "instead of direct TCP, dramatically reducing cross-region latency.\n\n" +
+      "Setup required on Cloudflare:\n" +
+      "1. DNS: Add A record for relay domain → VPS IP (orange cloud ON)\n" +
+      "2. Origin Rules: Rewrite destination port to frps bind port (e.g. 7000)\n" +
+      "3. SSL/TLS mode: Flexible\n" +
+      "4. Network → WebSocket: ON",
+    zh:
+      "CF CDN 中继让 frpc 流量走 Cloudflare 骨干网络,\n" +
+      "而非直连 TCP, 大幅降低跨地区延迟 (如中国→美国: 2000ms→200ms)。\n\n" +
+      "需要在 Cloudflare 配置:\n" +
+      "1. DNS: 添加 A 记录, 中继域名 → VPS IP (开启橙色云朵代理)\n" +
+      "2. Origin Rules: 目标端口改写为 frps 绑定端口 (如 7000)\n" +
+      "3. SSL/TLS 模式: 灵活 (Flexible)\n" +
+      "4. 网络 → WebSocket: 开启",
+  },
   // ── Cloudflare Named Tunnel ──
   web_tunnel_named_guide: {
     en:

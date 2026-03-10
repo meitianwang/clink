@@ -110,12 +110,46 @@ async function ensureBinaryInstalled(
   }
 }
 
+// Detect previous tunnel mode from config
+function detectPrevTunnelMode(
+  tunnel: unknown,
+): "none" | "cloudflare-quick" | "cloudflare" | "ngrok" | "frp" | "custom" {
+  if (tunnel === true) return "cloudflare-quick";
+  if (!tunnel || typeof tunnel !== "object") return "none";
+  const t = tunnel as Record<string, unknown>;
+  switch (t.provider) {
+    case "cloudflare":
+      return "cloudflare";
+    case "ngrok":
+      return "ngrok";
+    case "frp":
+      return "frp";
+    case "custom":
+      return "custom";
+    default:
+      return "none";
+  }
+}
+
+// Helper: required validator that allows empty when defaultValue exists
+function requiredUnless(defaultVal: string | undefined) {
+  return (v: string) => {
+    if (v || defaultVal) return undefined;
+    return t("validate_required");
+  };
+}
+
 async function collectWebConfig(
   prev?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   p.log.info(t("web_guide"));
 
   const prevPort = prev?.port != null ? String(prev.port) : "3000";
+  const prevTunnel =
+    prev?.tunnel != null && typeof prev.tunnel === "object"
+      ? (prev.tunnel as Record<string, unknown>)
+      : null;
+  const prevTunnelMode = detectPrevTunnelMode(prev?.tunnel);
 
   // Basic config: port only (auth is now user-based with invite codes)
   const basic = await p.group({
@@ -131,6 +165,7 @@ async function collectWebConfig(
   // Tunnel mode selection
   const tunnelMode = await p.select({
     message: t("web_tunnel_mode"),
+    initialValue: prevTunnelMode,
     options: [
       { value: "none" as const, label: t("web_tunnel_none") },
       { value: "cloudflare-quick" as const, label: t("web_tunnel_quick") },
@@ -142,6 +177,9 @@ async function collectWebConfig(
   });
   if (p.isCancel(tunnelMode)) process.exit(0);
 
+  // Get previous values for the selected tunnel mode
+  const sameTunnel = tunnelMode === prevTunnelMode ? prevTunnel : null;
+
   let tunnelCfg: Record<string, unknown> | boolean = false;
 
   if (tunnelMode === "cloudflare-quick") {
@@ -150,17 +188,23 @@ async function collectWebConfig(
   } else if (tunnelMode === "cloudflare") {
     p.log.info(t("web_tunnel_named_guide"));
     await ensureBinaryInstalled("cloudflared", t("web_cf_install_hint"));
+    const prevToken = sameTunnel?.token ? String(sameTunnel.token) : "";
+    const prevHostname = sameTunnel?.hostname
+      ? String(sameTunnel.hostname)
+      : "";
     const named = await p.group({
       token: () =>
         p.text({
           message: t("web_tunnel_cf_token"),
-          validate: (v) => (v ? undefined : t("validate_required")),
+          defaultValue: prevToken || undefined,
+          placeholder: prevToken || undefined,
+          validate: requiredUnless(prevToken),
         }),
       hostname: () =>
         p.text({
           message: t("web_tunnel_cf_hostname"),
-          placeholder: "chat.example.com",
-          defaultValue: "",
+          placeholder: prevHostname || "chat.example.com",
+          defaultValue: prevHostname || "",
         }),
     });
     if (p.isCancel(named)) process.exit(0);
@@ -172,17 +216,23 @@ async function collectWebConfig(
   } else if (tunnelMode === "ngrok") {
     p.log.info(t("web_tunnel_ngrok_guide"));
     await ensureBinaryInstalled("ngrok", t("web_ngrok_install_hint"));
+    const prevAuthtoken = sameTunnel?.authtoken
+      ? String(sameTunnel.authtoken)
+      : "";
+    const prevDomain = sameTunnel?.domain ? String(sameTunnel.domain) : "";
     const ngrok = await p.group({
       authtoken: () =>
         p.text({
           message: t("web_tunnel_ngrok_authtoken"),
-          validate: (v) => (v ? undefined : t("validate_required")),
+          defaultValue: prevAuthtoken || undefined,
+          placeholder: prevAuthtoken || undefined,
+          validate: requiredUnless(prevAuthtoken),
         }),
       domain: () =>
         p.text({
           message: t("web_tunnel_ngrok_domain"),
-          placeholder: "my-app.ngrok-free.app",
-          defaultValue: "",
+          placeholder: prevDomain || "my-app.ngrok-free.app",
+          defaultValue: prevDomain || "",
         }),
     });
     if (p.isCancel(ngrok)) process.exit(0);
@@ -194,8 +244,13 @@ async function collectWebConfig(
   } else if (tunnelMode === "frp") {
     p.log.info(t("web_tunnel_frp_guide"));
     await ensureBinaryInstalled("frpc", t("web_frp_install_hint"));
+
+    const prevProxyType = sameTunnel?.proxy_type
+      ? String(sameTunnel.proxy_type)
+      : undefined;
     const proxyType = await p.select({
       message: t("web_tunnel_frp_proxy_type"),
+      initialValue: prevProxyType as "http" | "tcp" | undefined,
       options: [
         { value: "http" as const, label: t("web_tunnel_frp_proxy_http") },
         { value: "tcp" as const, label: t("web_tunnel_frp_proxy_tcp") },
@@ -203,47 +258,96 @@ async function collectWebConfig(
     });
     if (p.isCancel(proxyType)) process.exit(0);
 
+    const prevAddr = sameTunnel?.server_addr
+      ? String(sameTunnel.server_addr)
+      : "";
+    const prevSPort = sameTunnel?.server_port
+      ? String(sameTunnel.server_port)
+      : "7000";
+    const prevFrpToken = sameTunnel?.token ? String(sameTunnel.token) : "";
+
     const frpBase = await p.group({
       server_addr: () =>
         p.text({
           message: t("web_tunnel_frp_server_addr"),
-          validate: (v) => (v ? undefined : t("validate_required")),
+          defaultValue: prevAddr || undefined,
+          placeholder: prevAddr || undefined,
+          validate: requiredUnless(prevAddr),
         }),
       server_port: () =>
         p.text({
           message: t("web_tunnel_frp_server_port"),
-          defaultValue: "7000",
-          placeholder: "7000",
+          defaultValue: prevSPort,
+          placeholder: prevSPort,
         }),
       token: () =>
         p.text({
           message: t("web_tunnel_frp_token"),
-          validate: (v) => (v ? undefined : t("validate_required")),
+          defaultValue: prevFrpToken || undefined,
+          placeholder: prevFrpToken || undefined,
+          validate: requiredUnless(prevFrpToken),
         }),
     });
     if (p.isCancel(frpBase)) process.exit(0);
 
+    // CF CDN relay: route frpc control channel through Cloudflare for lower latency
+    const prevCfRelay = sameTunnel?.transport_protocol === "websocket";
+    const cfRelay = await p.confirm({
+      message: t("web_tunnel_frp_cf_relay"),
+      initialValue: prevCfRelay,
+    });
+    if (p.isCancel(cfRelay)) process.exit(0);
+
+    let cfRelayDomain: string | undefined;
+    if (cfRelay) {
+      p.log.info(t("web_tunnel_frp_cf_relay_guide"));
+      const prevCfDomain = prevCfRelay
+        ? String(sameTunnel?.server_addr ?? "")
+        : "";
+      const domain = await p.text({
+        message: t("web_tunnel_frp_cf_relay_domain"),
+        defaultValue: prevCfDomain || undefined,
+        placeholder: prevCfDomain || "frp.example.com",
+        validate: requiredUnless(prevCfDomain),
+      });
+      if (p.isCancel(domain)) process.exit(0);
+      cfRelayDomain = (domain as string) || prevCfDomain;
+    }
+
     const frpCfg: Record<string, unknown> = {
       provider: "frp",
-      server_addr: frpBase.server_addr,
-      server_port: Number(frpBase.server_port) || 7000,
+      // When CF relay is enabled, connect to CF domain on port 80 via WebSocket
+      server_addr:
+        cfRelay && cfRelayDomain ? cfRelayDomain : frpBase.server_addr,
+      server_port: cfRelay ? 80 : Number(frpBase.server_port) || 7000,
       token: frpBase.token,
       proxy_type: proxyType,
+      ...(cfRelay ? { transport_protocol: "websocket" } : {}),
     };
 
     if (proxyType === "http") {
+      const prevDomains = sameTunnel?.custom_domains as string[] | undefined;
+      const prevDomain = prevDomains?.[0] ?? "";
       const domain = await p.text({
         message: t("web_tunnel_frp_custom_domain"),
-        validate: (v) => (v ? undefined : t("validate_required")),
+        defaultValue: prevDomain || undefined,
+        placeholder: prevDomain || undefined,
+        validate: requiredUnless(prevDomain),
       });
       if (p.isCancel(domain)) process.exit(0);
       frpCfg.custom_domains = [domain as string];
     } else {
+      const prevRemotePort = sameTunnel?.remote_port
+        ? String(sameTunnel.remote_port)
+        : "";
       const remotePort = await p.text({
         message: t("web_tunnel_frp_remote_port"),
+        defaultValue: prevRemotePort || undefined,
+        placeholder: prevRemotePort || undefined,
         validate: (v) => {
-          if (!v) return t("validate_required");
-          const n = Number(v);
+          if (!v && !prevRemotePort) return t("validate_required");
+          const val = v || prevRemotePort;
+          const n = Number(val);
           if (!Number.isFinite(n) || n < 1 || n > 65535) return "1-65535";
           return undefined;
         },
@@ -255,14 +359,21 @@ async function collectWebConfig(
     tunnelCfg = frpCfg;
   } else if (tunnelMode === "custom") {
     p.log.info(t("web_tunnel_custom_guide"));
+    const prevUrl = sameTunnel?.url ? String(sameTunnel.url) : "";
+    const prevCmd = sameTunnel?.command ? String(sameTunnel.command) : "";
     const custom = await p.group({
       url: () =>
         p.text({
           message: t("web_tunnel_custom_url"),
+          defaultValue: prevUrl || undefined,
+          placeholder: prevUrl || undefined,
           validate: (v) => {
-            if (!v) return t("validate_required");
+            const val = v || prevUrl;
+            if (!val) return t("validate_required");
             try {
-              const normalized = /^https?:\/\//i.test(v) ? v : `https://${v}`;
+              const normalized = /^https?:\/\//i.test(val)
+                ? val
+                : `https://${val}`;
               new URL(normalized);
               return undefined;
             } catch {
@@ -273,14 +384,15 @@ async function collectWebConfig(
       command: () =>
         p.text({
           message: t("web_tunnel_custom_command"),
-          placeholder: "frpc -c /path/to/frpc.ini",
-          defaultValue: "",
+          placeholder: prevCmd || "frpc -c /path/to/frpc.ini",
+          defaultValue: prevCmd || "",
         }),
     });
     if (p.isCancel(custom)) process.exit(0);
-    const customUrl = /^https?:\/\//i.test(custom.url as string)
-      ? (custom.url as string)
-      : `https://${custom.url as string}`;
+    const urlVal = (custom.url as string) || prevUrl;
+    const customUrl = /^https?:\/\//i.test(urlVal)
+      ? urlVal
+      : `https://${urlVal}`;
     tunnelCfg = {
       provider: "custom",
       url: customUrl,

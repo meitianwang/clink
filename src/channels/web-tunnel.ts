@@ -254,9 +254,16 @@ function generateFrpcToml(cfg: FrpTunnelConfig, port: number): string {
     `token = "${escapeTOML(cfg.token)}"`,
   ];
 
-  if (cfg.tls_enable) {
-    lines.push("", "[transport]", "tls.enable = true");
-  }
+  // Transport optimizations: connection pool + keep-alive reduce latency
+  // Use "websocket" protocol when routing through CF CDN for ~10x lower latency
+  const transportProto = cfg.transport_protocol ?? "tcp";
+  lines.push(
+    "",
+    "[transport]",
+    "poolCount = 5",
+    `protocol = "${transportProto}"`,
+    `tls.enable = ${cfg.tls_enable ? "true" : "false"}`,
+  );
 
   lines.push(
     "",
@@ -265,6 +272,8 @@ function generateFrpcToml(cfg: FrpTunnelConfig, port: number): string {
     `type = "${proxyType}"`,
     `localIP = "127.0.0.1"`,
     `localPort = ${port}`,
+    `transport.useEncryption = true`,
+    `transport.useCompression = true`,
   );
 
   if (proxyType === "http" && cfg.custom_domains?.length) {

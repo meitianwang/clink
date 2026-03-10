@@ -140,6 +140,9 @@ function parseTunnelConfig(
             : {}),
           ...(obj.proxy_name ? { proxy_name: String(obj.proxy_name) } : {}),
           ...(obj.tls_enable === true ? { tls_enable: true } : {}),
+          ...(obj.transport_protocol === "websocket"
+            ? { transport_protocol: "websocket" as const }
+            : {}),
         };
       default:
         console.warn(
