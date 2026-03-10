@@ -104,14 +104,24 @@ struct ChatInputBar: View {
                     .padding(.trailing, 6)
                 } else {
                     HStack(spacing: 16) {
-                        Button {
-                            speech.toggleRecording()
-                            HapticManager.impact(.medium)
-                        } label: {
-                            Image(systemName: speech.isRecording ? "mic.fill" : "mic")
-                                .font(.system(size: 20))
-                                .foregroundStyle(speech.isRecording ? .red : .secondary)
-                        }
+                        Image(systemName: speech.isRecording ? "mic.fill" : "mic")
+                            .font(.system(size: 20))
+                            .foregroundStyle(speech.isRecording ? .red : .secondary)
+                            .gesture(
+                                LongPressGesture(minimumDuration: 0.15)
+                                    .onEnded { _ in
+                                        speech.startRecording()
+                                        HapticManager.impact(.medium)
+                                    }
+                                    .sequenced(before: DragGesture(minimumDistance: 0)
+                                        .onEnded { _ in
+                                            if speech.isRecording {
+                                                speech.stopRecording()
+                                                HapticManager.impact(.light)
+                                            }
+                                        }
+                                    )
+                            )
 
                         Image(systemName: "sparkles")
                             .font(.system(size: 20))

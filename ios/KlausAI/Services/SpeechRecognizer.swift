@@ -2,14 +2,14 @@ import Speech
 import AVFoundation
 
 /// Speech-to-text service using Apple's Speech framework.
-/// Supports real-time transcription using the device's current locale.
+/// Long-press to record, release to stop. Transcript persists after stop.
 @MainActor
 final class SpeechRecognizer: NSObject, ObservableObject {
     @Published var transcript = ""
     @Published var isRecording = false
     @Published var error: String?
 
-    private let speechRecognizer = SFSpeechRecognizer(locale: Locale.current)
+    private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "zh-Hans"))
     private let audioEngine = AVAudioEngine()
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
@@ -21,12 +21,8 @@ final class SpeechRecognizer: NSObject, ObservableObject {
 
     // MARK: - Public
 
-    func toggleRecording() {
-        if isRecording {
-            stopRecording()
-        } else {
-            Task { await startRecording() }
-        }
+    func startRecording() {
+        Task { await beginRecording() }
     }
 
     func stopRecording() {
@@ -38,7 +34,7 @@ final class SpeechRecognizer: NSObject, ObservableObject {
         audioEngine.inputNode.removeTap(onBus: 0)
         recognitionRequest?.endAudio()
         recognitionRequest = nil
-        recognitionTask?.cancel()
+        // Don't cancel the task — let it finalize the last result
         recognitionTask = nil
         isRecording = false
 
@@ -47,12 +43,10 @@ final class SpeechRecognizer: NSObject, ObservableObject {
 
     // MARK: - Private
 
-    private func startRecording() async {
-        // Reset transcript immediately to prevent stale data
+    private func beginRecording() async {
         transcript = ""
         error = nil
 
-        // Request permissions on first use
         let speechStatus = await withCheckedContinuation { continuation in
             SFSpeechRecognizer.requestAuthorization { status in
                 continuation.resume(returning: status)
@@ -78,7 +72,6 @@ final class SpeechRecognizer: NSObject, ObservableObject {
             return
         }
 
-        // Cancel any in-progress task
         recognitionTask?.cancel()
         recognitionTask = nil
 
@@ -98,7 +91,15 @@ final class SpeechRecognizer: NSObject, ObservableObject {
                         self.transcript = result.bestTranscription.formattedString
                     }
                     if error != nil || result?.isFinal == true {
-                        self.stopRecording()
+                        // Only stop engine, don't clear transcript
+                        if self.audioEngine.isRunning {
+                            self.audioEngine.stop()
+                            self.audioEngine.inputNode.removeTap(onBus: 0)
+                        }
+                        self.recognitionRequest = nil
+                        self.recognitionTask = nil
+                        self.isRecording = false
+                        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
                     }
                 }
             }
