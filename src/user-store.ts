@@ -237,6 +237,27 @@ export class UserStore {
 
     this.sessionMaxAgeMs = sessionMaxAgeMs ?? DEFAULT_SESSION_MAX_AGE_MS;
 
+    // Run migrations BEFORE preparing statements (columns must exist first)
+    try {
+      this.db.exec(
+        "ALTER TABLE users ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0",
+      );
+    } catch {
+      /* column already exists */
+    }
+    try {
+      this.db.exec(
+        "ALTER TABLE users ADD COLUMN locked_until INTEGER NOT NULL DEFAULT 0",
+      );
+    } catch {
+      /* column already exists */
+    }
+    try {
+      this.db.exec("ALTER TABLE users ADD COLUMN avatar_url TEXT");
+    } catch {
+      /* column already exists */
+    }
+
     // User statements
     this.stmtGetUserById = this.db.prepare("SELECT * FROM users WHERE id = ?");
     this.stmtGetUserByEmail = this.db.prepare(
@@ -302,27 +323,6 @@ export class UserStore {
     this.stmtResetFailedAttempts = this.db.prepare(
       "UPDATE users SET failed_attempts = 0, locked_until = 0 WHERE id = ?",
     );
-
-    // Ensure columns exist for upgraded databases
-    try {
-      this.db.exec(
-        "ALTER TABLE users ADD COLUMN failed_attempts INTEGER NOT NULL DEFAULT 0",
-      );
-    } catch {
-      /* column already exists */
-    }
-    try {
-      this.db.exec(
-        "ALTER TABLE users ADD COLUMN locked_until INTEGER NOT NULL DEFAULT 0",
-      );
-    } catch {
-      /* column already exists */
-    }
-    try {
-      this.db.exec("ALTER TABLE users ADD COLUMN avatar_url TEXT");
-    } catch {
-      /* column already exists */
-    }
 
     // Best-effort file permissions
     try {

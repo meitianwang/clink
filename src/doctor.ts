@@ -81,6 +81,12 @@ export function runDoctor(): void {
               which("ngrok") !== null,
               "brew install ngrok",
             );
+          } else if (provider === "frp") {
+            allOk &&= check(
+              "frpc CLI",
+              which("frpc") !== null,
+              "https://github.com/fatedier/frp/releases",
+            );
           }
         }
       }

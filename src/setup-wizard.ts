@@ -43,6 +43,7 @@ function getInstallCommand(
   cmd: string,
 ): { bin: string; args: string[]; display: string } | null {
   if (process.platform === "darwin") {
+    // brew install works for cloudflared, ngrok, frpc on macOS
     return {
       bin: "brew",
       args: ["install", cmd],
@@ -57,6 +58,21 @@ function getInstallCommand(
         "curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared",
       ],
       display: "curl + install cloudflared",
+    };
+  }
+  if (process.platform === "linux" && cmd === "frpc") {
+    // Install latest frpc binary for Linux amd64
+    return {
+      bin: "sh",
+      args: [
+        "-c",
+        "set -e; V=$(curl -fsSL https://api.github.com/repos/fatedier/frp/releases/latest | grep tag_name | head -1 | sed 's/.*\"v\\(.*\\)\".*/\\1/'); " +
+          'curl -fsSL "https://github.com/fatedier/frp/releases/download/v${V}/frp_${V}_linux_amd64.tar.gz" -o /tmp/frp.tar.gz && ' +
+          "tar xzf /tmp/frp.tar.gz -C /tmp && " +
+          "cp /tmp/frp_${V}_linux_amd64/frpc /usr/local/bin/frpc && chmod +x /usr/local/bin/frpc && " +
+          "rm -rf /tmp/frp.tar.gz /tmp/frp_${V}_linux_amd64",
+      ],
+      display: "curl + install frpc from GitHub",
     };
   }
   return null;
@@ -120,6 +136,7 @@ async function collectWebConfig(
       { value: "cloudflare-quick" as const, label: t("web_tunnel_quick") },
       { value: "cloudflare" as const, label: t("web_tunnel_named") },
       { value: "ngrok" as const, label: t("web_tunnel_ngrok") },
+      { value: "frp" as const, label: t("web_tunnel_frp") },
       { value: "custom" as const, label: t("web_tunnel_custom") },
     ],
   });
@@ -174,6 +191,68 @@ async function collectWebConfig(
       authtoken: ngrok.authtoken,
       ...(ngrok.domain ? { domain: ngrok.domain } : {}),
     };
+  } else if (tunnelMode === "frp") {
+    p.log.info(t("web_tunnel_frp_guide"));
+    await ensureBinaryInstalled("frpc", t("web_frp_install_hint"));
+    const proxyType = await p.select({
+      message: t("web_tunnel_frp_proxy_type"),
+      options: [
+        { value: "http" as const, label: t("web_tunnel_frp_proxy_http") },
+        { value: "tcp" as const, label: t("web_tunnel_frp_proxy_tcp") },
+      ],
+    });
+    if (p.isCancel(proxyType)) process.exit(0);
+
+    const frpBase = await p.group({
+      server_addr: () =>
+        p.text({
+          message: t("web_tunnel_frp_server_addr"),
+          validate: (v) => (v ? undefined : t("validate_required")),
+        }),
+      server_port: () =>
+        p.text({
+          message: t("web_tunnel_frp_server_port"),
+          defaultValue: "7000",
+          placeholder: "7000",
+        }),
+      token: () =>
+        p.text({
+          message: t("web_tunnel_frp_token"),
+          validate: (v) => (v ? undefined : t("validate_required")),
+        }),
+    });
+    if (p.isCancel(frpBase)) process.exit(0);
+
+    const frpCfg: Record<string, unknown> = {
+      provider: "frp",
+      server_addr: frpBase.server_addr,
+      server_port: Number(frpBase.server_port) || 7000,
+      token: frpBase.token,
+      proxy_type: proxyType,
+    };
+
+    if (proxyType === "http") {
+      const domain = await p.text({
+        message: t("web_tunnel_frp_custom_domain"),
+        validate: (v) => (v ? undefined : t("validate_required")),
+      });
+      if (p.isCancel(domain)) process.exit(0);
+      frpCfg.custom_domains = [domain as string];
+    } else {
+      const remotePort = await p.text({
+        message: t("web_tunnel_frp_remote_port"),
+        validate: (v) => {
+          if (!v) return t("validate_required");
+          const n = Number(v);
+          if (!Number.isFinite(n) || n < 1 || n > 65535) return "1-65535";
+          return undefined;
+        },
+      });
+      if (p.isCancel(remotePort)) process.exit(0);
+      frpCfg.remote_port = Number(remotePort);
+    }
+
+    tunnelCfg = frpCfg;
   } else if (tunnelMode === "custom") {
     p.log.info(t("web_tunnel_custom_guide"));
     const custom = await p.group({

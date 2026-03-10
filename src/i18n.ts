@@ -179,6 +179,67 @@ const TEXTS: Record<string, Record<Lang, string>> = {
     en: "Custom — your own URL + optional startup command",
     zh: "自定义 — 自行提供公网 URL + 可选启动命令",
   },
+  web_tunnel_frp: {
+    en: "frp — self-hosted reverse proxy (frps on VPS + frpc locally)",
+    zh: "frp — 自建内网穿透 (VPS 上运行 frps, 本地运行 frpc)",
+  },
+  // ── frp tunnel ──
+  web_tunnel_frp_guide: {
+    en:
+      "frp (Fast Reverse Proxy) setup:\n\n" +
+      "Prerequisites:\n" +
+      "- A VPS with public IP running frps (server)\n" +
+      "- frpc (client) installed locally\n\n" +
+      "If you have a domain pointed to the VPS, use HTTP mode.\n" +
+      "Otherwise, use TCP mode with a remote port.",
+    zh:
+      "frp (Fast Reverse Proxy) 配置:\n\n" +
+      "前置要求:\n" +
+      "- 一台有公网 IP 的 VPS, 上面运行 frps (服务端)\n" +
+      "- 本地安装 frpc (客户端)\n\n" +
+      "如果域名已指向 VPS, 使用 HTTP 模式。\n" +
+      "否则使用 TCP 模式 + 远程端口。",
+  },
+  web_tunnel_frp_server_addr: {
+    en: "frps server address (IP or domain)",
+    zh: "frps 服务器地址 (IP 或域名)",
+  },
+  web_tunnel_frp_server_port: {
+    en: "frps server port (default 7000)",
+    zh: "frps 服务端口 (默认 7000)",
+  },
+  web_tunnel_frp_token: {
+    en: "frp authentication token",
+    zh: "frp 认证 token",
+  },
+  web_tunnel_frp_proxy_type: {
+    en: "Proxy type",
+    zh: "代理类型",
+  },
+  web_tunnel_frp_proxy_http: {
+    en: "HTTP — use with a domain pointed to VPS (recommended)",
+    zh: "HTTP — 配合域名指向 VPS 使用 (推荐)",
+  },
+  web_tunnel_frp_proxy_tcp: {
+    en: "TCP — direct port forwarding, no domain needed",
+    zh: "TCP — 直接端口转发, 无需域名",
+  },
+  web_tunnel_frp_custom_domain: {
+    en: "Custom domain (pointed to VPS, e.g. chat.example.com)",
+    zh: "自定义域名 (已指向 VPS, 如 chat.example.com)",
+  },
+  web_tunnel_frp_remote_port: {
+    en: "Remote port on VPS (e.g. 8080)",
+    zh: "VPS 上的远程端口 (如 8080)",
+  },
+  web_frp_install_hint: {
+    en:
+      "  macOS: brew install frpc\n" +
+      "  Other: https://github.com/fatedier/frp/releases",
+    zh:
+      "  macOS: brew install frpc\n" +
+      "  其他系统: https://github.com/fatedier/frp/releases",
+  },
   // ── Cloudflare Named Tunnel ──
   web_tunnel_named_guide: {
     en:

@@ -4,11 +4,15 @@
  */
 
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { writeFileSync, chmodSync, rmSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   TunnelConfig,
   NamedTunnelConfig,
   NgrokTunnelConfig,
   CustomTunnelConfig,
+  FrpTunnelConfig,
 } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -226,6 +230,138 @@ function startCustomTunnel(cfg: CustomTunnelConfig): TunnelResult | null {
 }
 
 // ---------------------------------------------------------------------------
+// Provider: frp (Fast Reverse Proxy)
+// ---------------------------------------------------------------------------
+
+/** Escape a string for safe inclusion in a TOML double-quoted value. */
+function escapeTOML(value: string): string {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r");
+}
+
+function generateFrpcToml(cfg: FrpTunnelConfig, port: number): string {
+  const proxyType = cfg.proxy_type ?? "http";
+  const proxyName = cfg.proxy_name ?? "klaus-web";
+
+  const lines: string[] = [
+    `serverAddr = "${escapeTOML(cfg.server_addr)}"`,
+    `serverPort = ${cfg.server_port}`,
+    "",
+    "[auth]",
+    `token = "${escapeTOML(cfg.token)}"`,
+  ];
+
+  if (cfg.tls_enable) {
+    lines.push("", "[transport]", "tls.enable = true");
+  }
+
+  lines.push(
+    "",
+    "[[proxies]]",
+    `name = "${escapeTOML(proxyName)}"`,
+    `type = "${proxyType}"`,
+    `localIP = "127.0.0.1"`,
+    `localPort = ${port}`,
+  );
+
+  if (proxyType === "http" && cfg.custom_domains?.length) {
+    const domains = cfg.custom_domains
+      .map((d) => `"${escapeTOML(d)}"`)
+      .join(", ");
+    lines.push(`customDomains = [${domains}]`);
+  }
+
+  if (proxyType === "tcp" && cfg.remote_port != null) {
+    lines.push(`remotePort = ${cfg.remote_port}`);
+  }
+
+  return lines.join("\n") + "\n";
+}
+
+function startFrpTunnel(
+  cfg: FrpTunnelConfig,
+  port: number,
+): TunnelResult | null {
+  if (!hasCommand("frpc")) {
+    logMissing(
+      "frpc",
+      "  Download: https://github.com/fatedier/frp/releases\n" +
+        "  macOS: brew install frpc",
+    );
+    return null;
+  }
+
+  if (!cfg.server_addr || !cfg.token) {
+    console.warn("[Web] frp tunnel requires server_addr and token.");
+    return null;
+  }
+
+  const proxyType = cfg.proxy_type ?? "http";
+  if (proxyType === "tcp" && cfg.remote_port == null) {
+    console.warn(
+      "[Web] frp TCP mode requires remote_port. Continuing without tunnel.",
+    );
+    return null;
+  }
+
+  // Generate temporary frpc.toml (restricted permissions — contains token)
+  const tmpDir = mkdtempSync(join(tmpdir(), "klaus-frp-"));
+  const configPath = join(tmpDir, "frpc.toml");
+  writeFileSync(configPath, generateFrpcToml(cfg, port), {
+    encoding: "utf-8",
+    mode: 0o600,
+  });
+
+  const displayTarget =
+    proxyType === "http" && cfg.custom_domains?.length
+      ? cfg.custom_domains[0]
+      : `${cfg.server_addr}:${cfg.remote_port ?? cfg.server_port}`;
+  console.log(`[Web] Starting frp tunnel → ${displayTarget}`);
+
+  const child = spawn("frpc", ["-c", configPath], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  let ready = false;
+  const onData = (chunk: Buffer): void => {
+    const text = chunk.toString();
+    if (!ready && /proxy.*start|login.*server.*success/i.test(text)) {
+      ready = true;
+      console.log("[Web] frp tunnel ready");
+    }
+  };
+
+  child.stdout?.on("data", onData);
+  child.stderr?.on("data", onData);
+
+  const cleanup = (): void => {
+    try {
+      rmSync(tmpDir, { recursive: true, force: true });
+    } catch {}
+  };
+
+  child.on("exit", (code) => {
+    cleanup();
+    if (code !== null && code !== 0) {
+      console.warn(`[Web] frpc exited with code ${code}`);
+    }
+  });
+
+  // Compute publicUrl
+  let publicUrl: string | null = null;
+  if (proxyType === "http" && cfg.custom_domains?.length) {
+    publicUrl = `http://${cfg.custom_domains[0]}`;
+  } else if (proxyType === "tcp" && cfg.remote_port != null) {
+    publicUrl = `http://${cfg.server_addr}:${cfg.remote_port}`;
+  }
+
+  return { child, publicUrl };
+}
+
+// ---------------------------------------------------------------------------
 // Unified dispatcher
 // ---------------------------------------------------------------------------
 
@@ -242,5 +378,7 @@ export function startTunnel(
       return startNgrokTunnel(tunnelCfg, port);
     case "custom":
       return startCustomTunnel(tunnelCfg);
+    case "frp":
+      return startFrpTunnel(tunnelCfg, port);
   }
 }

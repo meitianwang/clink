@@ -62,11 +62,24 @@ export interface CustomTunnelConfig {
   readonly command?: string;
 }
 
+export interface FrpTunnelConfig {
+  readonly provider: "frp";
+  readonly server_addr: string;
+  readonly server_port: number;
+  readonly token: string;
+  readonly proxy_type?: "http" | "tcp";
+  readonly custom_domains?: readonly string[];
+  readonly remote_port?: number;
+  readonly proxy_name?: string;
+  readonly tls_enable?: boolean;
+}
+
 export type TunnelConfig =
   | QuickTunnelConfig
   | NamedTunnelConfig
   | NgrokTunnelConfig
-  | CustomTunnelConfig;
+  | CustomTunnelConfig
+  | FrpTunnelConfig;
 
 export interface GoogleOAuthConfig {
   readonly clientId: string;

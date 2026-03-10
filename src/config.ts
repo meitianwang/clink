@@ -123,6 +123,24 @@ function parseTunnelConfig(
           url: String(obj.url ?? ""),
           ...(obj.command ? { command: String(obj.command) } : {}),
         };
+      case "frp":
+        return {
+          provider: "frp",
+          server_addr: String(obj.server_addr ?? ""),
+          server_port: Math.floor(positiveNumber(obj.server_port, 7000)),
+          token: String(obj.token ?? ""),
+          ...(obj.proxy_type === "tcp"
+            ? { proxy_type: "tcp" as const }
+            : { proxy_type: "http" as const }),
+          ...(Array.isArray(obj.custom_domains)
+            ? { custom_domains: obj.custom_domains.map(String) }
+            : {}),
+          ...(obj.remote_port != null
+            ? { remote_port: Math.floor(Number(obj.remote_port)) }
+            : {}),
+          ...(obj.proxy_name ? { proxy_name: String(obj.proxy_name) } : {}),
+          ...(obj.tls_enable === true ? { tls_enable: true } : {}),
+        };
       default:
         console.warn(
           `[Web] Unknown tunnel provider "${provider}", using quick tunnel`,

@@ -203,7 +203,7 @@ function validateTunnelConfig(tunnelRaw: unknown, issues: ConfigIssue[]): void {
     issues.push({
       path: "web.tunnel.provider",
       message: 'missing required field "provider"',
-      hint: "expected: cloudflare-quick, cloudflare, ngrok, or custom",
+      hint: "expected: cloudflare-quick, cloudflare, ngrok, frp, or custom",
     });
     return;
   }
@@ -246,11 +246,31 @@ function validateTunnelConfig(tunnelRaw: unknown, issues: ConfigIssue[]): void {
         }
       }
       break;
+    case "frp":
+      if (!tunnel.server_addr || typeof tunnel.server_addr !== "string") {
+        issues.push({
+          path: "web.tunnel.server_addr",
+          message: "frp tunnel requires server_addr",
+        });
+      }
+      if (!tunnel.token || typeof tunnel.token !== "string") {
+        issues.push({
+          path: "web.tunnel.token",
+          message: "frp tunnel requires a token",
+        });
+      }
+      if (tunnel.proxy_type === "tcp" && tunnel.remote_port == null) {
+        issues.push({
+          path: "web.tunnel.remote_port",
+          message: "frp TCP mode requires remote_port",
+        });
+      }
+      break;
     default:
       issues.push({
         path: "web.tunnel.provider",
         message: `unknown provider "${provider}"`,
-        hint: "expected: cloudflare-quick, cloudflare, ngrok, or custom",
+        hint: "expected: cloudflare-quick, cloudflare, ngrok, frp, or custom",
       });
   }
 }
