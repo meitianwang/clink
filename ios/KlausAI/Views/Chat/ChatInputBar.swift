@@ -8,6 +8,7 @@ struct ChatInputBar: View {
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var showDocumentPicker = false
     @State private var isUploading = false
+    @StateObject private var speech = SpeechRecognizer()
     @FocusState private var isFocused: Bool
 
     private static let maxFileSize = 10 * 1024 * 1024  // 10 MB
@@ -84,8 +85,8 @@ struct ChatInputBar: View {
                         }
                     }
 
-                // Send button or decorative icons
-                if canSend {
+                // Send button or action icons
+                if canSend && !speech.isRecording {
                     Button {
                         Task { await viewModel.sendMessage() }
                     } label: {
@@ -93,7 +94,7 @@ struct ChatInputBar: View {
                             Circle()
                                 .fill(Color.primary)
                                 .frame(width: 32, height: 32)
-                                
+
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundStyle(Color(.systemBackground))
@@ -103,10 +104,15 @@ struct ChatInputBar: View {
                     .padding(.trailing, 6)
                 } else {
                     HStack(spacing: 16) {
-                        Image(systemName: "mic")
-                            .font(.system(size: 20))
-                            .foregroundStyle(.secondary)
-                        
+                        Button {
+                            speech.toggleRecording()
+                            HapticManager.impact(.medium)
+                        } label: {
+                            Image(systemName: speech.isRecording ? "mic.fill" : "mic")
+                                .font(.system(size: 20))
+                                .foregroundStyle(speech.isRecording ? .red : .secondary)
+                        }
+
                         Image(systemName: "sparkles")
                             .font(.system(size: 20))
                             .foregroundStyle(.secondary)
@@ -135,6 +141,14 @@ struct ChatInputBar: View {
                         await handleDocumentSelection(url)
                     }
                 }
+            }
+        }
+        .onChange(of: speech.transcript) { newValue in
+            viewModel.inputText = newValue
+        }
+        .onChange(of: speech.error) { newValue in
+            if let msg = newValue {
+                viewModel.errorMessage = msg
             }
         }
     }

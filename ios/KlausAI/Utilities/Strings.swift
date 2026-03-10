@@ -65,6 +65,11 @@ enum L10n {
     static let copyCode = "复制"
     static let downloadFile = "下载文件"
 
+    // Voice input
+    static let micPermissionDenied = "需要麦克风权限才能使用语音输入，请在设置中开启"
+    static let speechPermissionDenied = "需要语音识别权限，请在设置中开启"
+    static let speechNotAvailable = "语音识别不可用"
+
     // Errors
     static let dismiss = "关闭"
     static let configUpdated = "配置已更新，部分设置需要重启生效"
