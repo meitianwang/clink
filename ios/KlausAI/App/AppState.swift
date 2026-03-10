@@ -30,6 +30,9 @@ final class AppState: ObservableObject {
         isCheckingAuth = true
         defer { isCheckingAuth = false }
 
+        // Restore session cookie from Keychain if HTTPCookieStorage was cleared
+        restoreSessionCookie()
+
         do {
             let user = try await api.fetchMe()
             currentUser = user
@@ -42,6 +45,7 @@ final class AppState: ObservableObject {
     func login(email: String, password: String) async throws {
         let user = try await api.login(email: email, password: password)
         currentUser = user
+        saveSessionCookie()
         connectWebSocket()
     }
 
@@ -58,6 +62,7 @@ final class AppState: ObservableObject {
             inviteCode: inviteCode
         )
         currentUser = user
+        saveSessionCookie()
         connectWebSocket()
     }
 
@@ -75,6 +80,7 @@ final class AppState: ObservableObject {
         try? await api.logout()
         webSocket.disconnect()
         currentUser = nil
+        SessionKeychain.delete()
         // Clear cookies
         if let url = URL(string: serverURL),
            let cookies = HTTPCookieStorage.shared.cookies(for: url) {
@@ -84,8 +90,42 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Private
+
     private func connectWebSocket() {
         guard let url = URL(string: serverURL) else { return }
         webSocket.connect(baseURL: url)
+    }
+
+    /// Save the klaus_session cookie to Keychain for persistence across reinstalls.
+    private func saveSessionCookie() {
+        guard let url = URL(string: serverURL),
+              let cookies = HTTPCookieStorage.shared.cookies(for: url),
+              let session = cookies.first(where: { $0.name == "klaus_session" }) else { return }
+        SessionKeychain.save(token: session.value)
+    }
+
+    /// Restore the session cookie from Keychain into HTTPCookieStorage.
+    private func restoreSessionCookie() {
+        guard let token = SessionKeychain.load(),
+              let url = URL(string: serverURL) else { return }
+
+        // Check if cookie already exists
+        if let cookies = HTTPCookieStorage.shared.cookies(for: url),
+           cookies.contains(where: { $0.name == "klaus_session" }) {
+            return
+        }
+
+        // Recreate the cookie
+        let properties: [HTTPCookiePropertyKey: Any] = [
+            .name: "klaus_session",
+            .value: token,
+            .domain: url.host ?? "klaus-ai.site",
+            .path: "/",
+            .secure: true,
+        ]
+        if let cookie = HTTPCookie(properties: properties) {
+            HTTPCookieStorage.shared.setCookie(cookie)
+        }
     }
 }
