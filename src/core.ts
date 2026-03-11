@@ -569,6 +569,8 @@ export class ChatSessionManager {
     onToolEvent?: ToolEventCallback,
     onStreamChunk?: StreamChunkCallback,
     onPermissionRequest?: PermissionRequestCallback,
+    /** User-facing display text for history (defaults to prompt if omitted). */
+    displayText?: string,
   ): Promise<string | null> {
     await this.evictIfNeeded();
     const session = this.getSession(sessionKey);
@@ -595,7 +597,7 @@ export class ChatSessionManager {
       // Append messages to transcript (fire-and-forget async)
       if (this.messageStore) {
         this.messageStore
-          .append(sessionKey, "user", prompt)
+          .append(sessionKey, "user", displayText ?? prompt)
           .then(() =>
             this.messageStore!.append(sessionKey, "assistant", result),
           )

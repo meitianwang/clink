@@ -71,6 +71,48 @@ export interface InboundMessage {
 }
 
 // ---------------------------------------------------------------------------
+// Display text: InboundMessage → user-facing text (no internal paths)
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a structured InboundMessage into user-facing display text.
+ * Unlike formatPrompt(), this hides internal file paths and only shows
+ * file names — safe to persist in message history and show in the UI.
+ */
+export function formatDisplayText(msg: InboundMessage): string {
+  const parts: string[] = [];
+
+  if (msg.text) {
+    parts.push(msg.text);
+  }
+
+  if (msg.media?.length) {
+    for (const file of msg.media) {
+      switch (file.type) {
+        case "image":
+          parts.push(file.fileName ? `[图片: ${file.fileName}]` : "[图片]");
+          break;
+        case "audio":
+          parts.push(
+            file.transcription
+              ? `[语音: "${file.transcription}"]`
+              : "[语音消息]",
+          );
+          break;
+        case "video":
+          parts.push("[视频]");
+          break;
+        case "file":
+          parts.push(`[文件: ${file.fileName || "未知文件"}]`);
+          break;
+      }
+    }
+  }
+
+  return parts.join("\n").trim();
+}
+
+// ---------------------------------------------------------------------------
 // Format prompt: InboundMessage → text string for Claude
 // ---------------------------------------------------------------------------
 

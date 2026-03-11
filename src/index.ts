@@ -15,7 +15,11 @@ import {
 import { ensureConfigValid } from "./config-validate.js";
 import { ChatSessionManager } from "./core.js";
 import { t } from "./i18n.js";
-import { type InboundMessage, formatPrompt } from "./message.js";
+import {
+  type InboundMessage,
+  formatPrompt,
+  formatDisplayText,
+} from "./message.js";
 import {
   loadEnabledSkills,
   listSkillNames,
@@ -239,12 +243,14 @@ async function start(): Promise<void> {
 
     const prompt = formatPrompt(msg);
     if (!prompt) return null;
+    const display = formatDisplayText(msg);
     const reply = await sessions.chat(
       msg.sessionKey,
       prompt,
       onToolEvent,
       onStreamChunk,
       onPermissionRequest,
+      display,
     );
 
     // Post-process: extract and execute [[cron:...]] markers
