@@ -474,7 +474,7 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
     currentSessionId = crypto.randomUUID();
     sessionsMeta.unshift({ id: currentSessionId, title: "New Chat", ts: Date.now() });
     saveSessionMeta();
-    busy = false; isStreaming = false; streamBuffer = "";
+    busy = false; isStreaming = false; streamBuffer = ""; streamFullText = "";
     if (streamTimer) { clearTimeout(streamTimer); streamTimer = null; }
     activeTools.clear(); agentContainers.clear(); toolContainer = null;
     updateBtn(); renderSessionList(); closeSidebar();
@@ -492,7 +492,7 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
     var saved = sessionDom.get(id);
     if (saved) { msgs.appendChild(saved); sessionDom.delete(id); }
     else { loadHistory(id); }
-    busy = false; isStreaming = false; streamBuffer = "";
+    busy = false; isStreaming = false; streamBuffer = ""; streamFullText = "";
     if (streamTimer) { clearTimeout(streamTimer); streamTimer = null; }
     activeTools.clear(); agentContainers.clear(); toolContainer = null;
     updateBtn(); saveSessionMeta(); renderSessionList(); closeSidebar(); scrollBottom();
@@ -929,6 +929,7 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
   }
 
   let streamBuffer = "";
+  let streamFullText = "";
   let streamTimer = null;
   let isStreaming = false;
 
@@ -940,6 +941,7 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
       isStreaming = true;
     }
     streamBuffer += chunk;
+    streamFullText += chunk;
     if (!streamTimer) {
       streamTimer = setTimeout(flushStreamBuffer, 100);
     }
@@ -948,12 +950,13 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
   function flushStreamBuffer() {
     streamTimer = null;
     if (!streamBuffer) return;
+    streamBuffer = "";
     const el = document.getElementById("streaming-msg");
     if (!el) return;
     const msgEl = el.querySelector(".msg");
-    const cursor = msgEl.querySelector(".cursor");
-    msgEl.insertBefore(document.createTextNode(streamBuffer), cursor);
-    streamBuffer = "";
+    if (!msgEl) return;
+    var rendered = renderMd(streamFullText);
+    msgEl.innerHTML = rendered + '<span class="cursor"></span>';
     scrollBottom();
   }
 
@@ -970,6 +973,7 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
     if (streamTimer) { clearTimeout(streamTimer); streamTimer = null; }
     if (streamBuffer) { flushStreamBuffer(); }
     streamBuffer = "";
+    streamFullText = "";
     isStreaming = false;
     const el = document.getElementById("streaming-msg");
     if (el) {
@@ -1017,6 +1021,44 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
     scrollBottom();
   }
 
+  var fileBadgeSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>';
+  var imageBadgeSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
+
+  function renderUserHistory(text) {
+    var badges = [];
+    var clean = text.replace(/\[文件: (.+?)\]/g, function(_, name) {
+      badges.push('<span class="file-badge">' + fileBadgeSvg + ' ' + escHtml(name) + '</span>');
+      return "";
+    });
+    clean = clean.replace(/\[图片: (.+?)\]/g, function(_, name) {
+      badges.push('<span class="file-badge">' + imageBadgeSvg + ' ' + escHtml(name) + '</span>');
+      return "";
+    });
+    clean = clean.replace(/\[图片\]/g, function() {
+      badges.push('<span class="file-badge">' + imageBadgeSvg + ' 图片</span>');
+      return "";
+    });
+    clean = clean.replace(/\[语音: "(.+?)"\]/g, function(_, transcript) {
+      badges.push('<span class="file-badge">🎤 ' + escHtml(transcript) + '</span>');
+      return "";
+    });
+    clean = clean.replace(/\[语音消息\]/g, function() {
+      badges.push('<span class="file-badge">🎤 语音消息</span>');
+      return "";
+    });
+    clean = clean.replace(/\[视频\]/g, function() {
+      badges.push('<span class="file-badge">🎬 视频</span>');
+      return "";
+    });
+    clean = clean.trim();
+    var html = badges.join(" ");
+    if (clean) {
+      if (html) html += "<br>";
+      html += escHtml(clean);
+    }
+    return html;
+  }
+
   function appendMsg(role, text) {
     const wrap = document.createElement("div");
     wrap.className = "msg-container " + role;
@@ -1032,8 +1074,12 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
 
     const el = document.createElement("div");
     el.className = "msg " + role;
-    el.innerHTML = role === "user" ? escHtml(text) : renderMd(text);
-    if (role !== "user") postProcessMsg(el);
+    if (role === "user") {
+      el.innerHTML = renderUserHistory(text);
+    } else {
+      el.innerHTML = renderMd(text);
+      postProcessMsg(el);
+    }
 
     wrap.appendChild(el);
     msgs.appendChild(wrap);

@@ -69,12 +69,11 @@ struct MessageBubble: View {
                 StreamingIndicator()
                     .padding(.leading, 4)
             } else if message.isStreaming {
-                HStack(alignment: .bottom, spacing: 0) {
-                    Text(message.content)
-                        .font(.system(size: 14.5))
-                        .lineSpacing(3)
-                        .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 0) {
+                    MarkdownText(message.content)
                     StreamingCursor()
+                        .padding(.leading, 4)
+                        .padding(.top, 2)
                 }
             } else {
                 MarkdownText(message.content)

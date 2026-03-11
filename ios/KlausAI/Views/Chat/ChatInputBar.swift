@@ -124,9 +124,10 @@ struct ChatInputBar: View {
                     .fill(Color.primary)
                     .frame(width: 32, height: 32)
 
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 14, weight: .bold))
+                Image(systemName: "paperplane.fill")
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Color(.systemBackground))
+                    .offset(x: -1, y: 1)
             }
         }
         .padding(.bottom, 6)
