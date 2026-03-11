@@ -76,21 +76,26 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
 .msg-container.user .avatar { background: var(--avatar-user); color: var(--fg); }
 .msg-container.assistant .avatar { background: var(--avatar-bot); color: var(--bg); padding: 2px; }
 .msg-container.assistant .avatar img { width: 100%; height: 100%; object-fit: contain; border-radius: 50%; }
-.msg { padding: 14px 18px; border-radius: 20px; font-size: 15px; line-height: 1.6; word-wrap: break-word; font-weight: 400; max-width: 85%; box-shadow: 0 1px 2px rgba(0,0,0,0.02); min-width: 0; }
+.msg { padding: 14px 18px; border-radius: 20px; font-size: 16px; line-height: 1.7; word-wrap: break-word; font-weight: 400; max-width: 85%; box-shadow: 0 1px 2px rgba(0,0,0,0.02); min-width: 0; letter-spacing: -0.01em; }
+.msg h1 { font-size: 1.75em; font-weight: 700; margin: 20px 0 12px; line-height: 1.3; letter-spacing: -0.02em; }
+.msg h2 { font-size: 1.4em; font-weight: 650; margin: 18px 0 10px; line-height: 1.35; letter-spacing: -0.015em; }
+.msg h3 { font-size: 1.15em; font-weight: 600; margin: 16px 0 8px; line-height: 1.4; }
+.msg h4 { font-size: 1em; font-weight: 600; margin: 14px 0 6px; line-height: 1.4; }
+.msg h1:first-child, .msg h2:first-child, .msg h3:first-child, .msg h4:first-child { margin-top: 0; }
 .msg.user { white-space: pre-wrap; background: var(--msg-user); border-top-right-radius: 4px; }
 .msg.assistant { background: var(--msg-bot); border-top-left-radius: 4px; border: 1px solid var(--border); }
 .msg.error { background: #fee2e2; color: #991b1b; display: flex; align-items: center; gap: 8px; font-size: 14px; border-radius: 12px; max-width: fit-content; margin: 0 auto; padding: 12px 16px; border: 1px solid #fca5a5; }
-.msg code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13.5px; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }
+.msg code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.875em; background: var(--code-bg); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); }
 .msg pre { background: var(--code-bg); padding: 16px; border-radius: 12px; border: 1px solid var(--border); overflow-x: auto; margin: 12px 0; max-width: 100%; }
-.msg pre code { background: none; padding: 0; border: none; font-size: 13.5px; }
+.msg pre code { background: none; padding: 0; border: none; font-size: 14px; line-height: 1.6; }
 .msg pre code.hljs { background: var(--code-bg); }
-.msg table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+.msg table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 15px; }
 .msg thead { background: var(--code-bg); }
 .msg th, .msg td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; }
 .msg th { font-weight: 600; }
 .msg blockquote { border-left: 3px solid var(--border); padding: 4px 16px; margin: 8px 0; color: var(--thinking); }
-.msg ul, .msg ol { padding-left: 24px; margin: 8px 0; }
-.msg li { margin: 4px 0; }
+.msg ul, .msg ol { padding-left: 24px; margin: 10px 0; }
+.msg li { margin: 5px 0; line-height: 1.6; }
 .msg p { margin: 0 0 8px 0; }
 .msg p:last-child { margin-bottom: 0; }
 .msg hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
@@ -120,7 +125,7 @@ html, body { height: 100dvh; width: 100vw; margin: 0; padding: 0; font-family: v
 #attach { background: transparent; border: none; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--thinking); flex-shrink: 0; transition: background 0.2s, color 0.2s; margin-bottom: 2px; }
 #attach:hover { background: var(--preview-bg); color: var(--fg); }
 #attach svg { width: 20px; height: 20px; stroke-width: 2; }
-#input { flex: 1; resize: none; border: none; background: transparent; color: var(--fg); max-height: 200px; min-height: 40px; line-height: 1.5; outline: none; font-family: inherit; font-size: 15px; padding: 8px 0; }
+#input { flex: 1; resize: none; border: none; background: transparent; color: var(--fg); max-height: 200px; min-height: 40px; line-height: 1.5; outline: none; font-family: inherit; font-size: 16px; padding: 8px 0; }
 #input::placeholder { color: var(--thinking); }
 #send { background: var(--accent); color: var(--accent-text); border: none; border-radius: 50%; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.2s, transform 0.1s; margin-bottom: 1px; }
 #send:hover:not(:disabled) { background: var(--accent-hover); }

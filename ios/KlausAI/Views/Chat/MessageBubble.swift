@@ -1,91 +1,99 @@
 import SwiftUI
 
-/// Single message bubble with different styles for user and assistant.
+/// Single message row — DeepSeek-inspired minimal style.
+/// Assistant: no avatar, no bubble, full-width text.
+/// User: right-aligned gray bubble, no avatar.
 struct MessageBubble: View {
     let message: ChatMessage
     let baseURL: URL
 
     var body: some View {
-        VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 8) {
-            // Tool events (assistant only, with nesting support)
-            if message.role == .assistant && !message.toolEvents.isEmpty {
+        switch message.role {
+        case .user:
+            userRow
+        case .assistant:
+            assistantRow
+        case .system:
+            systemRow
+        }
+    }
+
+    // MARK: - User message (right-aligned gray bubble)
+
+    private var userRow: some View {
+        HStack {
+            Spacer(minLength: 60)
+            VStack(alignment: .trailing, spacing: 6) {
+                // Attached files
+                if !message.attachedFiles.isEmpty {
+                    ForEach(message.attachedFiles) { file in
+                        FileAttachmentCard(file: file, baseURL: baseURL)
+                    }
+                }
+
+                Text(message.content)
+                    .font(.system(size: 14.5))
+                    .lineSpacing(3)
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color(.systemGray5))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+                Text(message.timestamp.shortTimeString)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.tertiary)
+                    .padding(.trailing, 4)
+            }
+        }
+    }
+
+    // MARK: - Assistant message (full-width, no bubble, no avatar)
+
+    private var assistantRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Tool events
+            if !message.toolEvents.isEmpty {
                 ToolEventsListView(events: message.toolEvents)
             }
 
-            // Message content
-            HStack(alignment: .top, spacing: 8) {
-                if message.role == .user { Spacer(minLength: 60) }
-
-                // Assistant avatar
-                if message.role == .assistant {
-                    Image("KlausAvatar")
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: 32, height: 32)
-                        .clipShape(Circle())
+            // Content
+            if message.isStreaming && message.content.isEmpty {
+                StreamingIndicator()
+                    .padding(.leading, 4)
+            } else if message.isStreaming {
+                HStack(alignment: .bottom, spacing: 0) {
+                    Text(message.content)
+                        .font(.system(size: 14.5))
+                        .lineSpacing(3)
+                        .textSelection(.enabled)
+                    StreamingCursor()
                 }
+            } else {
+                MarkdownText(message.content)
+            }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    if message.isStreaming && message.content.isEmpty {
-                        StreamingIndicator()
-                    } else if message.isStreaming {
-                        // Streaming: show text with blinking cursor
-                        HStack(alignment: .bottom, spacing: 0) {
-                            Text(message.content)
-                                .textSelection(.enabled)
-                                .font(.system(.body, design: .rounded))
-                            StreamingCursor()
-                        }
-                    } else if message.role == .system {
-                        // System messages (slash command results)
-                        Text(message.content)
-                            .font(.system(.callout, design: .rounded))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        MarkdownText(message.content)
-                    }
-
-                    // Attached files with download support
-                    if !message.attachedFiles.isEmpty {
-                        ForEach(message.attachedFiles) { file in
-                            FileAttachmentCard(file: file, baseURL: baseURL)
-                        }
-                    }
-
-                    // Timestamp
-                    HStack {
-                        if message.role == .user { Spacer() }
-                        Text(message.timestamp.shortTimeString)
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
-                            .foregroundStyle(.tertiary)
-                        if message.role == .assistant { Spacer() }
-                    }
-                    .padding(.top, 2)
+            // Attached files
+            if !message.attachedFiles.isEmpty {
+                ForEach(message.attachedFiles) { file in
+                    FileAttachmentCard(file: file, baseURL: baseURL)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .foregroundStyle(.primary)
-                .background(bubbleBackground)
-                .clipShape(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                )
-
-                if message.role == .assistant { Spacer(minLength: 40) }
             }
         }
-        .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    @ViewBuilder
-    private var bubbleBackground: some View {
-        switch message.role {
-        case .user:
-            Color(.systemGray5)
-        case .assistant:
-            Color.clear
-        case .system:
-            Color(.systemGray6).opacity(0.8)
-        }
+    // MARK: - System message
+
+    private var systemRow: some View {
+        Text(message.content)
+            .font(.system(.callout))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.systemGray6).opacity(0.6))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -118,7 +126,6 @@ private struct FileAttachmentCard: View {
             UIApplication.shared.open(fullURL)
         } label: {
             HStack(spacing: 8) {
-                // File type icon badge
                 ZStack {
                     RoundedRectangle(cornerRadius: 6)
                         .fill(badgeColor)

@@ -42,7 +42,7 @@ struct ChatView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(spacing: 16) {
+                        LazyVStack(spacing: 20) {
                             ForEach(viewModel.messages, id: \.id) { message in
                                 MessageBubble(message: message, baseURL: appState.api.baseURL)
                                     .id(message.id)
