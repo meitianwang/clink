@@ -188,6 +188,15 @@ export class SessionStore {
 
   // -- Queries --------------------------------------------------------------
 
+  listSessions(): PersistedSession[] {
+    const rows = this.db
+      .prepare(
+        "SELECT session_key, session_id, created_at, updated_at, model FROM sessions ORDER BY updated_at DESC",
+      )
+      .all() as DbRow[];
+    return rows.map(rowToSession);
+  }
+
   isFresh(sessionKey: string, idleMs: number = DEFAULT_IDLE_MS): boolean {
     const entry = this.get(sessionKey);
     if (!entry) return false;

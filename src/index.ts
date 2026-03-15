@@ -31,6 +31,7 @@ import type {
   PermissionRequestCallback,
 } from "./types.js";
 import { parseCronMarkers, type CronMarkerAction } from "./cron-marker.js";
+import { generateLocalToken, generateExecToken } from "./local-token.js";
 
 // ---------------------------------------------------------------------------
 // Channel registration
@@ -58,6 +59,12 @@ async function start(): Promise<void> {
 
   // Validate config before attempting to connect (fail-fast)
   ensureConfigValid();
+
+  // Generate local token for macOS app authentication
+  generateLocalToken();
+
+  // Generate exec approval token for macOS app command approval
+  generateExecToken();
 
   // Apply skill environment overrides (scoped to process lifetime)
   applySkillEnvOverrides();
@@ -694,12 +701,45 @@ async function main(): Promise<void> {
     }
     case "status": {
       const daemon = await import("./daemon.js");
-      daemon.showStatus();
+      const flags = process.argv.slice(3);
+      if (flags.includes("--json")) {
+        daemon.showStatusJson();
+      } else {
+        daemon.showStatus();
+      }
       break;
     }
     case "logs": {
       const daemon = await import("./daemon.js");
       daemon.tailLogs();
+      break;
+    }
+    case "daemon": {
+      const sub = process.argv[3];
+      const daemon = await import("./daemon.js");
+      if (sub === "install") {
+        const portFlag = process.argv.find((a) => a.startsWith("--port="));
+        const port = portFlag ? parseInt(portFlag.slice(7), 10) : 3000;
+        daemon.installLaunchAgent(Number.isFinite(port) ? port : 3000);
+      } else if (sub === "uninstall") {
+        daemon.uninstallLaunchAgent();
+      } else if (sub === "status") {
+        const flags = process.argv.slice(4);
+        if (flags.includes("--json")) {
+          daemon.showStatusJson();
+        } else {
+          daemon.showStatus();
+        }
+      } else {
+        console.log(
+          "Usage: klaus daemon <command>\n\n" +
+            "Commands:\n" +
+            "  install [--port=N]   Install launchd agent (macOS)\n" +
+            "  uninstall            Remove launchd agent\n" +
+            "  status [--json]      Show daemon status\n",
+        );
+      }
+      process.exit(0);
       break;
     }
     default:
@@ -711,7 +751,10 @@ async function main(): Promise<void> {
           "  start -f           Start in foreground\n" +
           "  stop               Stop the background daemon\n" +
           "  status             Show daemon status\n" +
+          "  status --json      Machine-readable status\n" +
           "  logs               Tail daemon logs\n" +
+          "  daemon install     Install launchd agent (macOS)\n" +
+          "  daemon uninstall   Remove launchd agent\n" +
           "  setup              Interactive setup wizard\n" +
           "  add-channel        Add a channel to existing config\n" +
           "  remove-channel     Remove a channel from config\n" +

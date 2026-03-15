@@ -28,6 +28,7 @@
  *   GET  /api/health          → Health check (no auth)
  */
 
+import { randomBytes } from "node:crypto";
 import {
   createServer,
   type IncomingMessage,
@@ -84,6 +85,7 @@ import {
   handleGoogleCallback,
 } from "./web-auth.js";
 import { DEFAULT_PERSONA } from "../persona.js";
+import { validateLocalToken } from "../local-token.js";
 
 // ---------------------------------------------------------------------------
 // File upload storage
@@ -136,7 +138,7 @@ function registerDownloadToken(
     );
   }
 
-  const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const token = randomBytes(16).toString("hex");
   const name = resolved.split("/").pop() ?? "file";
   downloadTokens.set(token, {
     path: resolved,
@@ -719,6 +721,12 @@ async function processUserMessage(
 type ClientWsMessage =
   | { type: "message"; text?: string; sessionId?: string; files?: string[] }
   | { type: "permission"; requestId: string; allow: boolean }
+  | {
+      type: "rpc";
+      id: string;
+      method: string;
+      params?: Record<string, unknown>;
+    }
   | { type: "pong" };
 
 function handleWsMessage(
@@ -776,8 +784,279 @@ function handleWsMessage(
     }
     case "pong":
       break;
+    case "rpc": {
+      handleRpcRequest(
+        ws,
+        parsed.id,
+        parsed.method,
+        parsed.params ?? {},
+        handler,
+      ).catch((err) => {
+        console.error("[Web] RPC error:", err);
+        ws.send(
+          JSON.stringify({
+            type: "rpc-response",
+            id: parsed.id,
+            error: String(err),
+          }),
+        );
+      });
+      break;
+    }
     default:
       break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// JSON-RPC handler (for macOS app and programmatic clients)
+// ---------------------------------------------------------------------------
+
+async function handleRpcRequest(
+  ws: KlausWebSocket,
+  id: string,
+  method: string,
+  params: Record<string, unknown>,
+  handler: Handler,
+): Promise<void> {
+  const sendResult = (result: unknown) => {
+    ws.send(JSON.stringify({ type: "rpc-response", id, result }));
+  };
+  const sendError = (error: string) => {
+    ws.send(JSON.stringify({ type: "rpc-response", id, error }));
+  };
+
+  // Write operations require admin role
+  const writeMethods = new Set([
+    "config.set",
+    "sessions.delete",
+    "cron.add",
+    "cron.update",
+    "cron.remove",
+    "cron.run",
+  ]);
+  if (writeMethods.has(method)) {
+    const isLocal = ws.klausUserId === "__local__";
+    const isAdmin =
+      isLocal || userStoreRef?.getUserById(ws.klausUserId)?.role === "admin";
+    if (!isAdmin) {
+      sendError("admin role required");
+      return;
+    }
+  }
+
+  switch (method) {
+    case "health": {
+      sendResult({
+        ok: true,
+        uptime: process.uptime(),
+        timestamp: Date.now(),
+      });
+      break;
+    }
+
+    case "status": {
+      sendResult({
+        ok: true,
+        uptime: process.uptime(),
+        pid: process.pid,
+        nodeVersion: process.version,
+      });
+      break;
+    }
+
+    case "sessions.list": {
+      if (!sessionStoreRef) {
+        sendError("session store not available");
+        return;
+      }
+      const sessions = sessionStoreRef.listSessions();
+      sendResult({ sessions });
+      break;
+    }
+
+    case "sessions.delete": {
+      if (!sessionStoreRef) {
+        sendError("session store not available");
+        return;
+      }
+      const key = params.key as string;
+      if (!key) {
+        sendError("missing key parameter");
+        return;
+      }
+      sessionStoreRef.delete(key);
+      await sessionStoreRef.save();
+      sendResult({ ok: true });
+      break;
+    }
+
+    case "config.get": {
+      const cfg = loadConfig();
+      sendResult({ config: cfg });
+      break;
+    }
+
+    case "config.set": {
+      const data = params.config as Record<string, unknown>;
+      if (!data || typeof data !== "object") {
+        sendError("missing config parameter");
+        return;
+      }
+      saveConfig(data);
+      sendResult({ ok: true });
+      break;
+    }
+
+    case "cron.list": {
+      if (!cronSchedulerRef) {
+        sendResult({ tasks: [] });
+        return;
+      }
+      const status = cronSchedulerRef.getStatus();
+      sendResult({ tasks: status });
+      break;
+    }
+
+    case "cron.add": {
+      if (!cronSchedulerRef) {
+        sendError("cron scheduler not available");
+        return;
+      }
+      const task = params.task as CronTask;
+      if (!task || !task.id || !task.schedule || !task.prompt) {
+        sendError("missing task fields (id, schedule, prompt)");
+        return;
+      }
+      cronSchedulerRef.addTask(task);
+      sendResult({ ok: true });
+      break;
+    }
+
+    case "cron.update": {
+      if (!cronSchedulerRef) {
+        sendError("cron scheduler not available");
+        return;
+      }
+      const taskId = params.id as string;
+      const patch = params.patch as Partial<CronTask>;
+      if (!taskId) {
+        sendError("missing id parameter");
+        return;
+      }
+      const ok = cronSchedulerRef.editTask(taskId, patch);
+      sendResult({ ok });
+      break;
+    }
+
+    case "cron.remove": {
+      if (!cronSchedulerRef) {
+        sendError("cron scheduler not available");
+        return;
+      }
+      const removeId = params.id as string;
+      if (!removeId) {
+        sendError("missing id parameter");
+        return;
+      }
+      const removed = cronSchedulerRef.removeTask(removeId);
+      sendResult({ ok: removed });
+      break;
+    }
+
+    case "cron.run": {
+      if (!cronSchedulerRef) {
+        sendError("cron scheduler not available");
+        return;
+      }
+      const runId = params.id as string;
+      if (!runId) {
+        sendError("missing id parameter");
+        return;
+      }
+      const result = await cronSchedulerRef.runTask(runId);
+      sendResult({ ok: !!result, result });
+      break;
+    }
+
+    case "cron.status": {
+      if (!cronSchedulerRef) {
+        sendResult({ running: false, taskCount: 0 });
+        return;
+      }
+      sendResult(cronSchedulerRef.getSchedulerStatus());
+      break;
+    }
+
+    case "chat.send": {
+      const text = params.text as string;
+      const sessionKey = (params.sessionKey as string) ?? "default";
+      if (!text) {
+        sendError("missing text parameter");
+        return;
+      }
+      // Process through the normal message handler
+      const userId = ws.klausUserId;
+      const cfg = loadWebConfig();
+      try {
+        await processUserMessage(userId, text, [], sessionKey, handler, cfg);
+        sendResult({ ok: true });
+      } catch (err) {
+        sendError(String(err));
+      }
+      break;
+    }
+
+    case "voice.send": {
+      const text = params.text as string;
+      const sessionKey = (params.sessionKey as string) ?? "main";
+      if (!text) {
+        sendError("missing text parameter");
+        return;
+      }
+      const userId = ws.klausUserId;
+      const cfg = loadWebConfig();
+      try {
+        await processUserMessage(userId, text, [], sessionKey, handler, cfg);
+        sendResult({ ok: true });
+      } catch (err) {
+        sendError(String(err));
+      }
+      break;
+    }
+
+    case "skills.list": {
+      try {
+        const { loadEnabledSkills } = await import("../skills/index.js");
+        const skills = loadEnabledSkills();
+        sendResult({
+          skills: skills.map((s) => ({
+            name: s.name,
+            description: s.description,
+            source: s.source,
+            emoji: s.metadata?.emoji,
+          })),
+        });
+      } catch {
+        sendResult({ skills: [] });
+      }
+      break;
+    }
+
+    case "usage.get": {
+      // Placeholder — usage tracking not yet implemented in core
+      sendResult({
+        totalTokens: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        estimatedCostUSD: 0,
+        sessionCount: sessionStoreRef?.listSessions().length ?? 0,
+      });
+      break;
+    }
+
+    default:
+      sendError(`unknown method: ${method}`);
   }
 }
 
@@ -867,7 +1146,7 @@ async function handleUpload(
   const { writeFile } = await import("node:fs/promises");
   await writeFile(filePath, data);
 
-  const fileId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const fileId = randomBytes(16).toString("hex");
   const mediaType = inferMediaType(contentType, baseName);
 
   uploadedFiles.set(fileId, {
@@ -1662,10 +1941,7 @@ async function handleRequest(
       }
       return handleAuthMe(req, res, userStoreRef, cfg);
     case "/api/auth/profile": {
-      const profIp =
-        (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
-        req.socket.remoteAddress ||
-        "";
+      const profIp = req.socket.remoteAddress || "";
       if (!checkRateLimit(profIp)) {
         jsonResponse(res, 429, { error: "too_many_requests" });
         return;
@@ -1677,10 +1953,7 @@ async function handleRequest(
       return handleAuthProfile(req, res, userStoreRef);
     }
     case "/api/auth/avatar": {
-      const avatarIp =
-        (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
-        req.socket.remoteAddress ||
-        "";
+      const avatarIp = req.socket.remoteAddress || "";
       if (!checkRateLimit(avatarIp)) {
         jsonResponse(res, 429, { error: "too_many_requests" });
         return;
@@ -1893,6 +2166,29 @@ export const webPlugin: ChannelPlugin = {
       const url = new URL(req.url ?? "/", `http://localhost:${cfg.port}`);
       if (url.pathname !== "/api/ws") {
         socket.destroy();
+        return;
+      }
+
+      // Authenticate: try local token first (macOS app), then cookie
+      const localToken = req.headers["x-klaus-local-token"]?.toString() ?? null;
+
+      if (localToken && validateLocalToken(localToken)) {
+        // Local token auth — create a synthetic admin user for the macOS app
+        const localUser: User = {
+          id: "__local__",
+          email: "local@klaus",
+          displayName: "Klaus App",
+          role: "admin",
+          avatarUrl: null,
+          googleId: null,
+          inviteCode: "",
+          createdAt: Date.now(),
+          lastLoginAt: Date.now(),
+          isActive: true,
+        };
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          wss.emit("connection", ws, req, localUser);
+        });
         return;
       }
 

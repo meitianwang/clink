@@ -7,7 +7,7 @@
  * `klaus status`      → check if daemon is running
  */
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -16,8 +16,13 @@ import {
   writeFileSync,
   openSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { CONFIG_DIR } from "./config.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const PID_FILE = join(CONFIG_DIR, "klaus.pid");
 const LOG_DIR = join(CONFIG_DIR, "logs");
@@ -272,4 +277,175 @@ function getScriptArgs(): string[] {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ---------------------------------------------------------------------------
+// launchd integration (macOS only)
+// ---------------------------------------------------------------------------
+
+const LAUNCHD_LABEL = "ai.klaus.daemon";
+const LAUNCHD_DIR = join(homedir(), "Library", "LaunchAgents");
+const LAUNCHD_PLIST = join(LAUNCHD_DIR, `${LAUNCHD_LABEL}.plist`);
+
+function findKlausBinary(): string | null {
+  // 1. If running from built dist, use the script path directly
+  const scriptPath = process.argv[1];
+  if (scriptPath && !scriptPath.endsWith(".ts") && existsSync(scriptPath)) {
+    return scriptPath;
+  }
+  // 2. Try common global install locations
+  const candidates = [
+    join(homedir(), ".npm-global", "bin", "klaus"),
+    "/usr/local/bin/klaus",
+    "/opt/homebrew/bin/klaus",
+  ];
+  for (const c of candidates) {
+    if (existsSync(c)) return c;
+  }
+  return null;
+}
+
+function buildPlist(binPath: string, port: number): string {
+  const logPath = LOG_FILE;
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${LAUNCHD_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${process.execPath}</string>
+    <string>${binPath}</string>
+    <string>start</string>
+    <string>--foreground</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>${logPath}</string>
+  <key>StandardErrorPath</key>
+  <string>${logPath}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>HOME</key>
+    <string>${homedir()}</string>
+    <key>KLAUS_WEB_PORT</key>
+    <string>${port}</string>
+  </dict>
+</dict>
+</plist>`;
+}
+
+/**
+ * Install a launchd plist so Klaus starts automatically on login.
+ */
+export function installLaunchAgent(port = 3000): void {
+  if (process.platform !== "darwin") {
+    console.error("launchd is only available on macOS.");
+    process.exit(1);
+  }
+
+  const binPath = findKlausBinary();
+  if (!binPath) {
+    console.error(
+      "Could not find the klaus binary. Install globally first: npm install -g klaus-ai",
+    );
+    process.exit(1);
+  }
+
+  mkdirSync(LAUNCHD_DIR, { recursive: true });
+  mkdirSync(LOG_DIR, { recursive: true });
+
+  const plist = buildPlist(binPath, port);
+  writeFileSync(LAUNCHD_PLIST, plist, "utf-8");
+
+  // Load the agent
+  try {
+    // Unload first (ignore errors if not loaded)
+    try {
+      execFileSync("launchctl", ["unload", LAUNCHD_PLIST], { stdio: "ignore" });
+    } catch {
+      /* ok */
+    }
+    execFileSync("launchctl", ["load", LAUNCHD_PLIST], { stdio: "inherit" });
+  } catch {
+    console.error(
+      "Failed to load launchd agent. You may need to load it manually:",
+    );
+    console.error(`  launchctl load "${LAUNCHD_PLIST}"`);
+  }
+
+  console.log(`Installed launchd agent: ${LAUNCHD_LABEL}`);
+  console.log(`Plist: ${LAUNCHD_PLIST}`);
+  console.log(`Klaus will start automatically on login (port ${port}).`);
+}
+
+/**
+ * Uninstall the launchd plist.
+ */
+export function uninstallLaunchAgent(): void {
+  if (process.platform !== "darwin") {
+    console.error("launchd is only available on macOS.");
+    process.exit(1);
+  }
+
+  if (!existsSync(LAUNCHD_PLIST)) {
+    console.log("No launchd agent installed.");
+    return;
+  }
+
+  try {
+    execFileSync("launchctl", ["unload", LAUNCHD_PLIST], { stdio: "ignore" });
+  } catch {
+    /* ok if not loaded */
+  }
+
+  unlinkSync(LAUNCHD_PLIST);
+  console.log(`Uninstalled launchd agent: ${LAUNCHD_LABEL}`);
+}
+
+/**
+ * Machine-readable status output for the macOS app.
+ */
+export function showStatusJson(): void {
+  const pid = readPid();
+  const running = pid !== null && isProcessRunning(pid);
+
+  // Clean up stale PID
+  if (pid !== null && !running) {
+    removePid();
+  }
+
+  const status = {
+    running,
+    pid: running ? pid : null,
+    logFile: LOG_FILE,
+    pidFile: PID_FILE,
+    configDir: CONFIG_DIR,
+    launchAgent: existsSync(LAUNCHD_PLIST) ? LAUNCHD_PLIST : null,
+    version: getVersion(),
+  };
+
+  console.log(JSON.stringify(status));
+}
+
+function getVersion(): string {
+  try {
+    const pkgPath = join(__dirname, "..", "package.json");
+    if (existsSync(pkgPath)) {
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+      return pkg.version ?? "unknown";
+    }
+  } catch {
+    /* ignore */
+  }
+  return "unknown";
 }
