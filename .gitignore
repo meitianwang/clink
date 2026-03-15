@@ -4,12 +4,12 @@ dist/
 .DS_Store
 .claude/
 openclaw/
-claudecodeui/
+picoclaw/
 release.sh
 OPENCLAW-ANALYSIS.md
 *.md
 !skills/**/SKILL.md
-
+antigravity-sync-mcp/
 # iOS / Xcode
 ios/KlausAI.xcworkspace/
 ios/**/*.xcworkspace/

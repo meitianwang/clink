@@ -129,6 +129,11 @@ async function start(): Promise<void> {
       );
       cronScheduler.start();
       console.log("[Cron] Scheduler started");
+      // Expose to web admin API if web channel is active
+      if (channelNames.includes("web")) {
+        const { setCronScheduler } = await import("./channels/web.js");
+        setCronScheduler(cronScheduler);
+      }
       return cronScheduler;
     })();
     return schedulerPromise;
@@ -149,7 +154,12 @@ async function start(): Promise<void> {
       },
       ensureScheduler: ensureCronScheduler,
     });
-    sessions.setMcpServers({ "klaus-cron": cronMcp });
+    const { createSendFileMcpServer } = await import("./send-file-tool.js");
+    const sendFileMcp = createSendFileMcpServer();
+    sessions.setMcpServers({
+      "klaus-cron": cronMcp,
+      "klaus-send-file": sendFileMcp,
+    });
   }
 
   // Expose stores to web channel for API endpoints
@@ -162,10 +172,15 @@ async function start(): Promise<void> {
       setSessionStore,
       setUserStore,
       setChatManager,
+      setCronScheduler,
     } = await import("./channels/web.js");
     setMessageStore(messageStore);
     setSessionStore(store);
     setChatManager(sessions);
+    // Expose cron scheduler to web admin API (may be null initially, set after init)
+    if (cronScheduler) {
+      setCronScheduler(cronScheduler);
+    }
 
     const { InviteStore } = await import("./invite-store.js");
     const inviteStore = new InviteStore();

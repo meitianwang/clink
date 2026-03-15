@@ -23,7 +23,8 @@
  *   PATCH /api/admin/users    → Update user (admin only)
  *   GET  /api/admin/sessions  → Browse any user's sessions (admin only)
  *   GET  /api/admin/history   → View any session's history (admin only)
- *   GET/PATCH /api/admin/settings → Global settings: model, persona (admin only)
+ *   GET/PATCH /api/admin/settings → All settings: general, web, session, transcripts, cron (admin only)
+ *   GET/POST/PATCH/DELETE /api/admin/cron/tasks → Cron task CRUD (admin only)
  *   GET  /api/health          → Health check (no auth)
  */
 
@@ -50,8 +51,16 @@ import {
   loadWebConfig,
   loadConfig,
   saveConfig,
+  loadSessionConfig,
+  loadTranscriptsConfig,
+  loadCronConfig,
   CONFIG_FILE,
 } from "../config.js";
+import type {
+  CronTask,
+  CronTaskStatus,
+  CronSchedulerStatus,
+} from "../types.js";
 import type { InboundMessage, MediaFile } from "../message.js";
 import { getChatHtml } from "./web-ui.js";
 import { getAdminHtml } from "./web-admin-ui.js";
@@ -236,6 +245,20 @@ export function setChatManager(manager: {
   reset(sessionKey: string): Promise<void>;
 }): void {
   chatManagerRef = manager;
+}
+
+// Cron scheduler reference (optional — set from index.ts when cron is available)
+let cronSchedulerRef: {
+  getStatus(): readonly CronTaskStatus[];
+  getSchedulerStatus(): CronSchedulerStatus;
+  addTask(task: CronTask): void;
+  editTask(id: string, patch: Partial<CronTask>): boolean;
+  removeTask(id: string): boolean;
+  runTask(id: string): Promise<unknown>;
+} | null = null;
+
+export function setCronScheduler(scheduler: typeof cronSchedulerRef): void {
+  cronSchedulerRef = scheduler;
 }
 
 // ---------------------------------------------------------------------------
@@ -545,9 +568,56 @@ async function processUserMessage(
     `[Web] Received (${userId.slice(0, 8)}): ${trimmedText.slice(0, 120)}${mediaLabel}`,
   );
 
+  // Track pending send_file tool calls for file delivery
+  const pendingSendFiles = new Map<
+    string,
+    { filePath: string; fileName?: string }
+  >();
+
   // Stream tool events to the client via WebSocket
   const onToolEvent: ToolEventCallback = (event) => {
     try {
+      // Intercept send_file tool: capture input on start, deliver on success
+      if (event.type === "tool_start" && event.toolName === "send_file") {
+        const input = event.input ?? {};
+        const filePath = input.file_path as string | undefined;
+        if (filePath) {
+          pendingSendFiles.set(event.toolUseId, {
+            filePath: String(filePath),
+            fileName: input.file_name ? String(input.file_name) : undefined,
+          });
+        }
+      } else if (
+        event.type === "tool_result" &&
+        pendingSendFiles.has(event.toolUseId)
+      ) {
+        const pending = pendingSendFiles.get(event.toolUseId)!;
+        pendingSendFiles.delete(event.toolUseId);
+        if (!event.isError) {
+          try {
+            const { token, name } = registerDownloadToken(
+              pending.filePath,
+              userId,
+            );
+            const displayName = pending.fileName ?? name;
+            sendWsEvent(userId, {
+              type: "file",
+              url: `/api/files/${token}`,
+              name: displayName,
+              sessionId,
+            });
+            console.log(
+              `[Web] send_file: ${displayName} (${token.slice(0, 8)}...)`,
+            );
+          } catch (err) {
+            console.error(
+              `[Web] send_file delivery failed for ${pending.filePath}:`,
+              err,
+            );
+          }
+        }
+      }
+
       sendWsEvent(userId, {
         type: "tool",
         data: formatToolEvent(event),
@@ -1047,7 +1117,7 @@ async function handleAdminHistory(
 }
 
 // ---------------------------------------------------------------------------
-// Admin: settings (model, persona)
+// Admin: settings (all config sections except tunnel)
 // ---------------------------------------------------------------------------
 
 const ALLOWED_MODELS: Record<string, string> = {
@@ -1056,6 +1126,58 @@ const ALLOWED_MODELS: Record<string, string> = {
   "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
 };
 
+/** Read a positive number from a raw value, fallback if invalid. */
+function posNum(raw: unknown, fallback: number): number {
+  const n = Number(raw ?? fallback);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/** Build the full settings response from current config. */
+function buildSettingsResponse(): Record<string, unknown> {
+  const cfg = loadConfig();
+  const webCfg = (cfg.web as Record<string, unknown>) ?? {};
+  const sessionCfg = (cfg.session as Record<string, unknown>) ?? {};
+  const transcriptsCfg = (cfg.transcripts as Record<string, unknown>) ?? {};
+  const cronCfg = (cfg.cron as Record<string, unknown>) ?? {};
+
+  return {
+    // General
+    model: chatManagerRef?.getDefaultModel() ?? (cfg.model as string) ?? "",
+    persona: (cfg.persona as string) ?? "",
+    availableModels: Object.entries(ALLOWED_MODELS).map(([id, label]) => ({
+      id,
+      label,
+    })),
+    // Web
+    web: {
+      port: Number(webCfg.port ?? process.env.KLAUS_WEB_PORT ?? 3000),
+      permissions: Boolean(
+        webCfg.permissions ?? process.env.KLAUS_WEB_PERMISSIONS === "true",
+      ),
+      session_max_age_days: posNum(webCfg.session_max_age_days, 7),
+    },
+    // Session
+    session: {
+      idle_minutes: posNum(sessionCfg.idle_minutes, 240),
+      max_entries: Math.floor(posNum(sessionCfg.max_entries, 100)),
+      max_age_days: posNum(sessionCfg.max_age_days, 7),
+    },
+    // Transcripts
+    transcripts: {
+      max_files: Math.floor(posNum(transcriptsCfg.max_files, 200)),
+      max_age_days: posNum(transcriptsCfg.max_age_days, 30),
+    },
+    // Cron (global settings only, tasks via separate endpoint)
+    cron: {
+      enabled: cronCfg.enabled === true,
+      max_concurrent_runs:
+        cronCfg.max_concurrent_runs != null
+          ? Math.floor(posNum(cronCfg.max_concurrent_runs, 0))
+          : null,
+    },
+  };
+}
+
 async function handleAdminSettings(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1063,23 +1185,12 @@ async function handleAdminSettings(
   if (!adminAuth(req, res)) return;
 
   if (req.method === "GET") {
-    const cfg = loadConfig();
-    const currentModel =
-      chatManagerRef?.getDefaultModel() ?? (cfg.model as string) ?? "";
-    const persona = (cfg.persona as string) ?? "";
-    jsonResponse(res, 200, {
-      model: currentModel,
-      persona,
-      availableModels: Object.entries(ALLOWED_MODELS).map(([id, label]) => ({
-        id,
-        label,
-      })),
-    });
+    jsonResponse(res, 200, buildSettingsResponse());
     return;
   }
 
   if (req.method === "PATCH") {
-    const body = await readBody(req, 4096);
+    const body = await readBody(req, 8192);
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(body.toString()) as Record<string, unknown>;
@@ -1090,7 +1201,8 @@ async function handleAdminSettings(
 
     const cfg = loadConfig();
 
-    // Update model
+    // --- General ---
+
     if ("model" in parsed) {
       const model = String(parsed.model ?? "").trim();
       if (model && !ALLOWED_MODELS[model]) {
@@ -1106,7 +1218,6 @@ async function handleAdminSettings(
       }
     }
 
-    // Update persona
     if ("persona" in parsed) {
       const persona = String(parsed.persona ?? "").trim();
       if (persona) {
@@ -1118,13 +1229,270 @@ async function handleAdminSettings(
       }
     }
 
+    // --- Web ---
+
+    if ("web" in parsed && typeof parsed.web === "object" && parsed.web) {
+      const webPatch = parsed.web as Record<string, unknown>;
+      const webCfg = (cfg.web as Record<string, unknown>) ?? {};
+
+      if ("port" in webPatch) {
+        const port = Math.floor(Number(webPatch.port));
+        if (port > 0 && port <= 65535) webCfg.port = port;
+      }
+      if ("permissions" in webPatch) {
+        webCfg.permissions = Boolean(webPatch.permissions);
+      }
+      if ("session_max_age_days" in webPatch) {
+        const v = Number(webPatch.session_max_age_days);
+        if (Number.isFinite(v) && v > 0) webCfg.session_max_age_days = v;
+      }
+
+      cfg.web = webCfg;
+    }
+
+    // --- Session ---
+
+    if (
+      "session" in parsed &&
+      typeof parsed.session === "object" &&
+      parsed.session
+    ) {
+      const sesPatch = parsed.session as Record<string, unknown>;
+      const sesCfg = (cfg.session as Record<string, unknown>) ?? {};
+
+      if ("idle_minutes" in sesPatch) {
+        const v = Number(sesPatch.idle_minutes);
+        if (Number.isFinite(v) && v > 0) sesCfg.idle_minutes = v;
+      }
+      if ("max_entries" in sesPatch) {
+        const v = Math.floor(Number(sesPatch.max_entries));
+        if (v > 0) sesCfg.max_entries = v;
+      }
+      if ("max_age_days" in sesPatch) {
+        const v = Number(sesPatch.max_age_days);
+        if (Number.isFinite(v) && v > 0) sesCfg.max_age_days = v;
+      }
+
+      cfg.session = sesCfg;
+    }
+
+    // --- Transcripts ---
+
+    if (
+      "transcripts" in parsed &&
+      typeof parsed.transcripts === "object" &&
+      parsed.transcripts
+    ) {
+      const txPatch = parsed.transcripts as Record<string, unknown>;
+      const txCfg = (cfg.transcripts as Record<string, unknown>) ?? {};
+
+      if ("max_files" in txPatch) {
+        const v = Math.floor(Number(txPatch.max_files));
+        if (v > 0) txCfg.max_files = v;
+      }
+      if ("max_age_days" in txPatch) {
+        const v = Number(txPatch.max_age_days);
+        if (Number.isFinite(v) && v > 0) txCfg.max_age_days = v;
+      }
+
+      cfg.transcripts = txCfg;
+    }
+
+    // --- Cron (global settings) ---
+
+    if ("cron" in parsed && typeof parsed.cron === "object" && parsed.cron) {
+      const cronPatch = parsed.cron as Record<string, unknown>;
+      const cronCfg = (cfg.cron as Record<string, unknown>) ?? {};
+
+      if ("enabled" in cronPatch) {
+        cronCfg.enabled = Boolean(cronPatch.enabled);
+      }
+      if ("max_concurrent_runs" in cronPatch) {
+        const v = cronPatch.max_concurrent_runs;
+        if (v === null || v === "") {
+          delete cronCfg.max_concurrent_runs;
+        } else {
+          const n = Math.floor(Number(v));
+          if (n > 0) cronCfg.max_concurrent_runs = n;
+        }
+      }
+
+      cfg.cron = cronCfg;
+    }
+
     saveConfig(cfg);
-    const updated = loadConfig();
-    jsonResponse(res, 200, {
-      model:
-        chatManagerRef?.getDefaultModel() ?? (updated.model as string) ?? "",
-      persona: (updated.persona as string) ?? "",
-    });
+    jsonResponse(res, 200, buildSettingsResponse());
+    return;
+  }
+
+  jsonResponse(res, 405, { error: "method not allowed" });
+}
+
+// ---------------------------------------------------------------------------
+// Admin: cron tasks CRUD
+// ---------------------------------------------------------------------------
+
+async function handleAdminCronTasks(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!adminAuth(req, res)) return;
+
+  // GET — list all tasks with status
+  if (req.method === "GET") {
+    if (cronSchedulerRef) {
+      const tasks = cronSchedulerRef.getStatus();
+      const scheduler = cronSchedulerRef.getSchedulerStatus();
+      jsonResponse(res, 200, { tasks, scheduler });
+    } else {
+      // No scheduler — read from config
+      const cronCfg = loadCronConfig();
+      const tasks = cronCfg.tasks.map((t) => ({
+        id: t.id,
+        name: t.name,
+        description: t.description,
+        schedule: t.schedule,
+        prompt: t.prompt,
+        model: t.model,
+        enabled: t.enabled !== false,
+        nextRun: null,
+        lastRun: null,
+        consecutiveErrors: 0,
+        createdAt: t.createdAt,
+        updatedAt: t.updatedAt,
+      }));
+      jsonResponse(res, 200, {
+        tasks,
+        scheduler: {
+          running: false,
+          taskCount: tasks.length,
+          activeJobs: 0,
+          runningTasks: 0,
+          maxConcurrentRuns: null,
+          nextWakeAt: null,
+        },
+      });
+    }
+    return;
+  }
+
+  // POST — create task
+  if (req.method === "POST") {
+    const body = await readBody(req, 4096);
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(body.toString()) as Record<string, unknown>;
+    } catch {
+      jsonResponse(res, 400, { error: "invalid JSON" });
+      return;
+    }
+
+    const id = String(parsed.id ?? "").trim();
+    const schedule = String(parsed.schedule ?? "").trim();
+    const prompt = String(parsed.prompt ?? "").trim();
+    if (!id || !schedule || !prompt) {
+      jsonResponse(res, 400, {
+        error: "id, schedule, and prompt are required",
+      });
+      return;
+    }
+
+    const task: CronTask = {
+      id,
+      schedule,
+      prompt,
+      name: parsed.name ? String(parsed.name) : undefined,
+      description: parsed.description ? String(parsed.description) : undefined,
+      model: parsed.model ? String(parsed.model) : undefined,
+      enabled: parsed.enabled !== false,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    if (cronSchedulerRef) {
+      cronSchedulerRef.addTask(task);
+    } else {
+      // Persist to config directly
+      const cfg = loadConfig();
+      const cronCfg = (cfg.cron as Record<string, unknown>) ?? {};
+      const tasks = Array.isArray(cronCfg.tasks) ? [...cronCfg.tasks] : [];
+      tasks.push(task);
+      cronCfg.tasks = tasks;
+      cfg.cron = cronCfg;
+      saveConfig(cfg);
+    }
+
+    jsonResponse(res, 201, { ok: true, task });
+    return;
+  }
+
+  // PATCH — update task
+  if (req.method === "PATCH") {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const id = url.searchParams.get("id") ?? "";
+    if (!id) {
+      jsonResponse(res, 400, { error: "id query parameter required" });
+      return;
+    }
+
+    const body = await readBody(req, 4096);
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(body.toString()) as Record<string, unknown>;
+    } catch {
+      jsonResponse(res, 400, { error: "invalid JSON" });
+      return;
+    }
+
+    const patch: Record<string, unknown> = {};
+    if ("schedule" in parsed) patch.schedule = String(parsed.schedule);
+    if ("prompt" in parsed) patch.prompt = String(parsed.prompt);
+    if ("name" in parsed)
+      patch.name = parsed.name ? String(parsed.name) : undefined;
+    if ("description" in parsed)
+      patch.description = parsed.description
+        ? String(parsed.description)
+        : undefined;
+    if ("model" in parsed)
+      patch.model = parsed.model ? String(parsed.model) : undefined;
+    if ("enabled" in parsed) patch.enabled = Boolean(parsed.enabled);
+
+    if (cronSchedulerRef) {
+      const ok = cronSchedulerRef.editTask(id, patch as Partial<CronTask>);
+      if (!ok) {
+        jsonResponse(res, 404, { error: "task not found" });
+        return;
+      }
+    } else {
+      jsonResponse(res, 503, { error: "cron scheduler not running" });
+      return;
+    }
+
+    jsonResponse(res, 200, { ok: true });
+    return;
+  }
+
+  // DELETE — remove task
+  if (req.method === "DELETE") {
+    const url = new URL(req.url ?? "", "http://localhost");
+    const id = url.searchParams.get("id") ?? "";
+    if (!id) {
+      jsonResponse(res, 400, { error: "id query parameter required" });
+      return;
+    }
+
+    if (cronSchedulerRef) {
+      const ok = cronSchedulerRef.removeTask(id);
+      if (!ok) {
+        jsonResponse(res, 404, { error: "task not found" });
+        return;
+      }
+    } else {
+      jsonResponse(res, 503, { error: "cron scheduler not running" });
+      return;
+    }
+
+    jsonResponse(res, 200, { ok: true });
     return;
   }
 
@@ -1343,6 +1711,8 @@ async function handleRequest(
       return handleAdminHistory(req, res);
     case "/api/admin/settings":
       return handleAdminSettings(req, res);
+    case "/api/admin/cron/tasks":
+      return handleAdminCronTasks(req, res);
 
     // Upload
     case "/api/upload":

@@ -108,6 +108,12 @@ const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
     getValue: (input) =>
       String(input.description ?? input.prompt ?? "").slice(0, 80),
   },
+  send_file: {
+    icon: "download",
+    label: "Sending file",
+    style: "file",
+    getValue: fileName,
+  },
 };
 
 const DEFAULT_CONFIG: ToolDisplayConfig = {
