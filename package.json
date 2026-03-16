@@ -1,6 +1,6 @@
 {
   "name": "klaus-ai",
-  "version": "0.1.39",
+  "version": "0.1.40",
   "description": "Use Claude Code from a browser-based Web Chat UI",
   "type": "module",
   "bin": {
