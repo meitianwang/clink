@@ -114,7 +114,12 @@ export function daemonize(): void {
   const child = spawn(process.execPath, [...scriptArgs, "--foreground"], {
     detached: true,
     stdio: ["ignore", logFd, logFd],
-    env: { ...process.env },
+    env: {
+      ...process.env,
+      PATH: [process.env.PATH, "/opt/homebrew/bin", "/usr/local/bin"]
+        .filter(Boolean)
+        .join(":"),
+    },
   });
 
   child.unref();
