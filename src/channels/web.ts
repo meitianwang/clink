@@ -2322,6 +2322,12 @@ export const webPlugin: ChannelPlugin = {
         configDebounce = setTimeout(() => {
           configDebounce = null;
           console.log("[Web] Config file changed, notifying clients");
+          // Sync persona to ChatSessionManager
+          const freshCfg = loadConfig();
+          const freshPersona = (freshCfg.persona as string) || "";
+          if (freshPersona) {
+            chatManagerRef?.setPersona(freshPersona);
+          }
           const data = JSON.stringify({ type: "config_updated" });
           for (const [, clients] of wsClients) {
             for (const ws of [...clients]) {
