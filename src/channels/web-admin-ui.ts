@@ -268,26 +268,6 @@ tr.clickable:hover { background: var(--card-bg); }
         <div class="section-header" data-i18n="sec_general">General</div>
         <div class="card">
           <div class="card-row">
-            <div class="card-label">
-              <div data-i18n="lbl_oneproxy">OneProxy Mode</div>
-              <div class="card-hint" data-i18n="hint_oneproxy">Route through OneProxy for multi-model access</div>
-            </div>
-            <div class="card-control">
-              <div class="toggle-wrap">
-                <label class="toggle"><input type="checkbox" id="s-oneproxy"><div class="toggle-track"></div><div class="toggle-thumb"></div></label>
-                <span class="toggle-status" id="s-oneproxy-label"></span>
-              </div>
-            </div>
-          </div>
-          <div class="card-row" id="oneproxy-url-row" style="display:none">
-            <div class="card-label">
-              <div data-i18n="lbl_oneproxy_url">OneProxy URL</div>
-            </div>
-            <div class="card-control">
-              <input id="s-oneproxy-url" type="text" class="f-input" placeholder="http://127.0.0.1:8417">
-            </div>
-          </div>
-          <div class="card-row">
             <div class="card-label" data-i18n="lbl_model">Default Model</div>
             <div class="card-control"><select id="s-model" class="f-select"><option>Loading...</option></select></div>
           </div>
@@ -489,7 +469,6 @@ tr.clickable:hover { background: var(--card-bg); }
       back_chat: "Back to Chat",
       sec_general: "General", sec_web: "Web Server", sec_session: "Chat Sessions", sec_transcripts: "Transcripts",
       lbl_model: "Default Model", lbl_persona: "System Prompt",
-      lbl_oneproxy: "OneProxy Mode", hint_oneproxy: "Route through OneProxy for multi-model access", lbl_oneproxy_url: "OneProxy URL",
       lbl_port: "Port", lbl_permissions: "Tool Permissions", lbl_auth_expire: "Auth Session Expiry",
       hint_restart: "Restart required", hint_permissions: "Require user approval for write operations", hint_auth_expire: "Days before login sessions expire", hint_idle: "New session after inactivity",
       lbl_idle: "Idle Timeout", lbl_max_sessions: "Max Stored Sessions", lbl_ses_age: "Session Retention",
@@ -515,7 +494,6 @@ tr.clickable:hover { background: var(--card-bg); }
       back_chat: "返回对话",
       sec_general: "通用", sec_web: "Web 服务器", sec_session: "对话会话", sec_transcripts: "历史记录",
       lbl_model: "默认模型", lbl_persona: "系统提示词",
-      lbl_oneproxy: "OneProxy 模式", hint_oneproxy: "通过 OneProxy 代理访问多模型", lbl_oneproxy_url: "OneProxy 地址",
       lbl_port: "端口", lbl_permissions: "工具权限", lbl_auth_expire: "登录过期时间",
       hint_restart: "需要重启", hint_permissions: "写操作需要用户在浏览器中确认", hint_auth_expire: "登录会话过期天数", hint_idle: "空闲后自动创建新会话",
       lbl_idle: "空闲超时", lbl_max_sessions: "最大存储会话数", lbl_ses_age: "会话保留时间",
@@ -578,10 +556,6 @@ tr.clickable:hover { background: var(--card-bg); }
   // =====================================================
   var sModel = document.getElementById("s-model");
   var sPersona = document.getElementById("s-persona");
-  var sOneProxy = document.getElementById("s-oneproxy");
-  var sOneProxyLabel = document.getElementById("s-oneproxy-label");
-  var sOneProxyUrl = document.getElementById("s-oneproxy-url");
-  var oneProxyUrlRow = document.getElementById("oneproxy-url-row");
   var sPort = document.getElementById("s-port");
   var sPerm = document.getElementById("s-permissions");
   var sPermLabel = document.getElementById("s-permissions-label");
@@ -595,25 +569,9 @@ tr.clickable:hover { background: var(--card-bg); }
   var saveStatus = document.getElementById("settings-status");
 
   sPerm.addEventListener("change", function() { sPermLabel.textContent = sPerm.checked ? tt("on") : tt("off"); });
-  sOneProxy.addEventListener("change", function() {
-    sOneProxyLabel.textContent = sOneProxy.checked ? tt("on") : tt("off");
-    oneProxyUrlRow.style.display = sOneProxy.checked ? "" : "none";
-  });
 
   function loadSettings() {
     api("settings", "GET").then(function(d) {
-      // OneProxy
-      if (d.oneproxy) {
-        sOneProxy.checked = d.oneproxy.enabled;
-        sOneProxyLabel.textContent = d.oneproxy.enabled ? tt("on") : tt("off");
-        sOneProxyUrl.value = d.oneproxy.base_url || "http://127.0.0.1:8417";
-        oneProxyUrlRow.style.display = d.oneproxy.enabled ? "" : "none";
-      } else {
-        sOneProxy.checked = false;
-        sOneProxyLabel.textContent = tt("off");
-        sOneProxyUrl.value = "http://127.0.0.1:8417";
-        oneProxyUrlRow.style.display = "none";
-      }
       // Model
       sModel.innerHTML = "";
       (d.availableModels || []).forEach(function(m) {
@@ -649,10 +607,6 @@ tr.clickable:hover { background: var(--card-bg); }
     api("settings", "PATCH", {
       model: sModel.value,
       persona: sPersona.value.trim(),
-      oneproxy: {
-        enabled: sOneProxy.checked,
-        base_url: sOneProxyUrl.value.trim() || "http://127.0.0.1:8417",
-      },
       web: {
         port: parseInt(sPort.value, 10),
         permissions: sPerm.checked,
@@ -672,7 +626,6 @@ tr.clickable:hover { background: var(--card-bg); }
       saveStatus.textContent = tt("saved"); saveStatus.style.color = "var(--success)";
       saveStatus.style.opacity = "1";
       setTimeout(function() { saveStatus.style.opacity = "0"; }, 2000);
-      loadSettings(); // refresh model list after mode change
     })
     .catch(function() {
       saveStatus.textContent = tt("failed"); saveStatus.style.color = "var(--danger)";

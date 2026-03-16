@@ -11,7 +11,6 @@ import {
   loadSessionConfig,
   loadTranscriptsConfig,
   loadCronConfig,
-  loadOneProxyConfig,
 } from "./config.js";
 import { ensureConfigValid } from "./config-validate.js";
 import { ChatSessionManager } from "./core.js";
@@ -293,12 +292,6 @@ async function start(): Promise<void> {
         return t("cmd_model_current", {
           model: current ?? t("cmd_default_model"),
         });
-      }
-      const opCfg = loadOneProxyConfig();
-      if (opCfg.enabled) {
-        // OneProxy mode: use model name as-is (no alias resolution)
-        sessions.setModel(msg.sessionKey, arg);
-        return t("cmd_model_switched", { model: arg });
       }
       const resolved = MODEL_ALIASES[arg.toLowerCase()] ?? MODEL_ALIASES[arg];
       if (!resolved) {

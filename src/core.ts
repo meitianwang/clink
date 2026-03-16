@@ -6,7 +6,7 @@
  */
 
 import { query, type McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
-import { loadConfig, loadOneProxyConfig } from "./config.js";
+import { loadConfig } from "./config.js";
 import { getToolConfig } from "./tool-config.js";
 import { DEFAULT_PERSONA } from "./persona.js";
 import { ensureWorkspace, extractUserId } from "./workspace.js";
@@ -79,7 +79,6 @@ interface ChatOptions {
   model?: string;
   cwd?: string;
   mcpServers?: Record<string, McpServerConfig>;
-  oneProxyBaseUrl?: string;
 }
 
 interface PendingMessage {
@@ -200,14 +199,6 @@ export class ClaudeChat {
         ...(onStreamChunk ? { includePartialMessages: true } : {}),
         ...(this.options.mcpServers
           ? { mcpServers: this.options.mcpServers }
-          : {}),
-        ...(this.options.oneProxyBaseUrl
-          ? {
-              env: {
-                ...process.env,
-                ANTHROPIC_BASE_URL: this.options.oneProxyBaseUrl,
-              },
-            }
           : {}),
       },
     });
@@ -459,12 +450,7 @@ export class ChatSessionManager {
     const cfg = loadConfig();
     const persona = (cfg.persona as string) || DEFAULT_PERSONA;
     const model = (cfg.model as string) || undefined;
-    const opCfg = loadOneProxyConfig();
-    this.options = {
-      systemPrompt: persona,
-      model,
-      ...(opCfg.enabled ? { oneProxyBaseUrl: opCfg.baseUrl } : {}),
-    };
+    this.options = { systemPrompt: persona, model };
     this.store = store;
     this.messageStore = messageStore;
     this.memoryStore = memoryStore;
@@ -494,27 +480,6 @@ export class ChatSessionManager {
   /** Inject MCP servers into all future sessions (called after CronScheduler init). */
   setMcpServers(servers: Record<string, McpServerConfig>): void {
     this.options = { ...this.options, mcpServers: servers };
-  }
-
-  /** Switch OneProxy mode. Clears all sessions when mode changes. */
-  async setOneProxyConfig(config: {
-    enabled: boolean;
-    baseUrl: string;
-  }): Promise<void> {
-    const newUrl = config.enabled ? config.baseUrl : undefined;
-    const oldUrl = this.options.oneProxyBaseUrl;
-    if (newUrl === oldUrl) return;
-
-    // Mode changed — clear all sessions (resume tokens are bound to base URL)
-    for (const [key] of this.sessions) {
-      await this.reset(key);
-    }
-    this.options = { ...this.options, oneProxyBaseUrl: newUrl };
-  }
-
-  /** Whether OneProxy mode is currently active. */
-  isOneProxyEnabled(): boolean {
-    return !!this.options.oneProxyBaseUrl;
   }
 
   private persistSession(key: string, session: ClaudeChat): void {

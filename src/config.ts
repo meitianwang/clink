@@ -31,32 +31,6 @@ export function saveConfig(data: Record<string, unknown>): void {
   writeFileSync(CONFIG_FILE, yaml.dump(data, { flowLevel: -1 }), "utf-8");
 }
 
-// ---------------------------------------------------------------------------
-// OneProxy config
-// ---------------------------------------------------------------------------
-
-export interface OneProxyConfig {
-  readonly enabled: boolean;
-  readonly baseUrl: string;
-}
-
-const DEFAULT_ONEPROXY_URL = "http://127.0.0.1:8417";
-
-export function loadOneProxyConfig(): OneProxyConfig {
-  const raw = (loadConfig().oneproxy as Record<string, unknown>) ?? {};
-  return {
-    enabled: raw.enabled === true,
-    baseUrl:
-      typeof raw.base_url === "string" && raw.base_url
-        ? raw.base_url
-        : DEFAULT_ONEPROXY_URL,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Channel helpers
-// ---------------------------------------------------------------------------
-
 export function getChannelNames(): string[] {
   const cfg = loadConfig();
   const raw = cfg.channel;

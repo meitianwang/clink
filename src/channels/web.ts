@@ -55,10 +55,8 @@ import {
   loadSessionConfig,
   loadTranscriptsConfig,
   loadCronConfig,
-  loadOneProxyConfig,
   CONFIG_FILE,
 } from "../config.js";
-import { fetchOneProxyModels } from "../oneproxy-client.js";
 import type {
   CronTask,
   CronTaskStatus,
@@ -224,11 +222,6 @@ let chatManagerRef: {
   setDefaultModel(m: string | undefined): void;
   setPersona(persona: string): void;
   reset(sessionKey: string): Promise<void>;
-  setOneProxyConfig(config: {
-    enabled: boolean;
-    baseUrl: string;
-  }): Promise<void>;
-  isOneProxyEnabled(): boolean;
 } | null = null;
 
 export function setMessageStore(store: MessageStore): void {
@@ -252,11 +245,6 @@ export function setChatManager(manager: {
   setDefaultModel(m: string | undefined): void;
   setPersona(persona: string): void;
   reset(sessionKey: string): Promise<void>;
-  setOneProxyConfig(config: {
-    enabled: boolean;
-    baseUrl: string;
-  }): Promise<void>;
-  isOneProxyEnabled(): boolean;
 }): void {
   chatManagerRef = manager;
 }
@@ -1411,7 +1399,7 @@ async function handleAdminHistory(
 // Admin: settings (all config sections except tunnel)
 // ---------------------------------------------------------------------------
 
-const NATIVE_MODELS: Record<string, string> = {
+const ALLOWED_MODELS: Record<string, string> = {
   "claude-sonnet-4-6": "Claude Sonnet 4.6",
   "claude-opus-4-6": "Claude Opus 4.6",
   "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
@@ -1423,38 +1411,22 @@ function posNum(raw: unknown, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-/** Get available models — native Claude or dynamic from OneProxy. */
-async function getAvailableModels(): Promise<
-  Array<{ id: string; label: string }>
-> {
-  const opCfg = loadOneProxyConfig();
-  if (opCfg.enabled) {
-    const models = await fetchOneProxyModels(opCfg.baseUrl);
-    return models.length > 0
-      ? models
-      : [{ id: "", label: "(OneProxy unreachable)" }];
-  }
-  return Object.entries(NATIVE_MODELS).map(([id, label]) => ({ id, label }));
-}
-
 /** Build the full settings response from current config. */
-async function buildSettingsResponse(): Promise<Record<string, unknown>> {
+function buildSettingsResponse(): Record<string, unknown> {
   const cfg = loadConfig();
   const webCfg = (cfg.web as Record<string, unknown>) ?? {};
   const sessionCfg = (cfg.session as Record<string, unknown>) ?? {};
   const transcriptsCfg = (cfg.transcripts as Record<string, unknown>) ?? {};
   const cronCfg = (cfg.cron as Record<string, unknown>) ?? {};
-  const opCfg = loadOneProxyConfig();
 
   return {
     // General
     model: chatManagerRef?.getDefaultModel() ?? (cfg.model as string) ?? "",
     persona: (cfg.persona as string) ?? "",
-    availableModels: await getAvailableModels(),
-    oneproxy: {
-      enabled: opCfg.enabled,
-      base_url: opCfg.baseUrl,
-    },
+    availableModels: Object.entries(ALLOWED_MODELS).map(([id, label]) => ({
+      id,
+      label,
+    })),
     // Web
     web: {
       port: Number(webCfg.port ?? process.env.KLAUS_WEB_PORT ?? 3000),
@@ -1492,7 +1464,7 @@ async function handleAdminSettings(
   if (!adminAuth(req, res)) return;
 
   if (req.method === "GET") {
-    jsonResponse(res, 200, await buildSettingsResponse());
+    jsonResponse(res, 200, buildSettingsResponse());
     return;
   }
 
@@ -1508,46 +1480,11 @@ async function handleAdminSettings(
 
     const cfg = loadConfig();
 
-    // --- OneProxy (process before model so mode change is visible to model validation) ---
-
-    if (
-      "oneproxy" in parsed &&
-      typeof parsed.oneproxy === "object" &&
-      parsed.oneproxy
-    ) {
-      const opPatch = parsed.oneproxy as Record<string, unknown>;
-      const opCfg = (cfg.oneproxy as Record<string, unknown>) ?? {};
-
-      const wasEnabled = opCfg.enabled === true;
-
-      if ("enabled" in opPatch) {
-        opCfg.enabled = Boolean(opPatch.enabled);
-      }
-      if ("base_url" in opPatch) {
-        const url = String(opPatch.base_url ?? "").trim();
-        if (url && (url.startsWith("http://") || url.startsWith("https://"))) {
-          opCfg.base_url = url;
-        }
-      }
-
-      cfg.oneproxy = opCfg;
-
-      const nowEnabled = opCfg.enabled === true;
-      if (wasEnabled !== nowEnabled) {
-        // Mode changed — notify ChatSessionManager and clear current model
-        const newOpConfig = loadOneProxyConfig();
-        await chatManagerRef?.setOneProxyConfig(newOpConfig);
-        delete cfg.model;
-        chatManagerRef?.setDefaultModel(undefined);
-      }
-    }
-
     // --- General ---
 
     if ("model" in parsed) {
       const model = String(parsed.model ?? "").trim();
-      const opCfg = loadOneProxyConfig();
-      if (model && !opCfg.enabled && !NATIVE_MODELS[model]) {
+      if (model && !ALLOWED_MODELS[model]) {
         jsonResponse(res, 400, { error: "invalid_model" });
         return;
       }
@@ -1663,7 +1600,7 @@ async function handleAdminSettings(
     }
 
     saveConfig(cfg);
-    jsonResponse(res, 200, await buildSettingsResponse());
+    jsonResponse(res, 200, buildSettingsResponse());
     return;
   }
 
