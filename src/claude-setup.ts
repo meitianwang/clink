@@ -114,7 +114,8 @@ export function readClaudeAuthStatus(): Promise<ClaudeAuthStatus> {
 /**
  * Spawn `claude auth login` and capture the OAuth URL from output.
  * Returns a promise that resolves with the URL (or null if not found).
- * The child process is killed after 5 minutes or when URL is found.
+ * The child process keeps running so the user can complete the OAuth flow;
+ * it is killed after 5 minutes if still alive.
  */
 export function startClaudeLogin(): Promise<{ url: string | null }> {
   return new Promise((resolve) => {
@@ -133,7 +134,8 @@ export function startClaudeLogin(): Promise<{ url: string | null }> {
       const urlMatch = output.match(/https:\/\/\S+/);
       if (urlMatch && !resolved) {
         resolved = true;
-        child.kill();
+        // Don't kill — the child must stay alive so `claude auth login`
+        // can complete the OAuth callback and persist credentials.
         resolve({ url: urlMatch[0] });
       }
     };
@@ -148,11 +150,11 @@ export function startClaudeLogin(): Promise<{ url: string | null }> {
       }
     });
 
-    // Timeout after 5 minutes
+    // Timeout: kill after 5 minutes if OAuth was never completed
     setTimeout(() => {
+      child.kill();
       if (!resolved) {
         resolved = true;
-        child.kill();
         resolve({ url: null });
       }
     }, 300_000);
