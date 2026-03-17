@@ -48,6 +48,52 @@ export function getChatHtml(): string {
   --shadow-md:0 8px 24px -4px rgba(0,0,0,0.06);
   --transition:150ms cubic-bezier(0.4,0,0.2,1);
 }
+[data-theme="dark"]{
+  --bg:#0f172a;
+  --bg-surface:#1e293b;
+  --bg-elevated:#1e293b;
+  --bg-hover:#334155;
+  --fg:#f1f5f9;
+  --fg-secondary:#cbd5e1;
+  --fg-tertiary:#94a3b8;
+  --fg-quaternary:#64748b;
+  --border:#334155;
+  --border-subtle:#1e293b;
+  --input-bg:#1e293b;
+  --input-border:#475569;
+  --input-focus:#94a3b8;
+  --accent:#e2e8f0;
+  --accent-text:#0f172a;
+  --accent-hover:#cbd5e1;
+  --code-bg:#1e293b;
+  --msg-user-bg:#1e293b;
+  --shadow-lg:0 24px 48px -12px rgba(0,0,0,0.4);
+  --shadow-md:0 8px 24px -4px rgba(0,0,0,0.3);
+}
+@media(prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f172a;
+    --bg-surface:#1e293b;
+    --bg-elevated:#1e293b;
+    --bg-hover:#334155;
+    --fg:#f1f5f9;
+    --fg-secondary:#cbd5e1;
+    --fg-tertiary:#94a3b8;
+    --fg-quaternary:#64748b;
+    --border:#334155;
+    --border-subtle:#1e293b;
+    --input-bg:#1e293b;
+    --input-border:#475569;
+    --input-focus:#94a3b8;
+    --accent:#e2e8f0;
+    --accent-text:#0f172a;
+    --accent-hover:#cbd5e1;
+    --code-bg:#1e293b;
+    --msg-user-bg:#1e293b;
+    --shadow-lg:0 24px 48px -12px rgba(0,0,0,0.4);
+    --shadow-md:0 8px 24px -4px rgba(0,0,0,0.3);
+  }
+}
 html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg);color:var(--fg);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;overflow:hidden}
 ::selection{background:rgba(2,6,23,0.1)}
 #app{display:flex;height:100%;width:100%;position:fixed;inset:0}
@@ -678,19 +724,20 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
           </div>
         </div>
 
-        <div class="settings-section">
-          <div class="settings-section-title" data-i18n="settings_language">Language</div>
-          <div class="settings-lang-options" id="settings-lang-options">
-            <button class="settings-lang-option" data-lang="en">English</button>
-            <button class="settings-lang-option" data-lang="zh">中文</button>
-          </div>
-        </div>
       </div>
     </div>
   </div>
 </div>
 <script>
 (function(){
+  // --- Theme ---
+  function applyTheme(theme) {
+    if (theme === "dark") document.documentElement.setAttribute("data-theme", "dark");
+    else if (theme === "light") document.documentElement.setAttribute("data-theme", "light");
+    else document.documentElement.removeAttribute("data-theme");
+  }
+  applyTheme(localStorage.getItem("klaus_theme") || "auto");
+
   // --- i18n ---
   var I18N = {
     en: {
@@ -1020,11 +1067,19 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     chatElements.forEach(function(el) { if (el) el.style.display = "none"; });
     // Populate
     var initial = (currentUser.name || currentUser.email || "U").charAt(0).toUpperCase();
-    var avatarEl = document.getElementById("settings-avatar");
+    var sAvatar = document.getElementById("settings-avatar");
+    var existingImg = sAvatar.querySelector("img");
     if (currentUser.avatar) {
-      avatarEl.innerHTML = '<img src="' + currentUser.avatar + '" alt="">';
+      if (existingImg) { existingImg.src = currentUser.avatar; }
+      else { sAvatar.insertAdjacentHTML("afterbegin", '<img src="' + currentUser.avatar + '" alt="">'); }
+      sAvatar.childNodes.forEach(function(n) { if (n.nodeType === 3) n.remove(); });
     } else {
-      avatarEl.textContent = initial;
+      if (existingImg) existingImg.remove();
+      // set text initial only if not already there
+      var hasText = false;
+      sAvatar.childNodes.forEach(function(n) { if (n.nodeType === 3) hasText = true; });
+      if (!hasText) sAvatar.insertAdjacentText("afterbegin", initial);
+      else sAvatar.firstChild.textContent = initial;
     }
     document.getElementById("settings-profile-name").textContent = currentUser.name || currentUser.email || "";
     document.getElementById("settings-profile-email").textContent = currentUser.email || "";
@@ -1033,10 +1088,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     var curTheme = localStorage.getItem("klaus_theme") || "auto";
     document.querySelectorAll(".settings-theme-card").forEach(function(c) {
       c.classList.toggle("active", c.getAttribute("data-theme") === curTheme);
-    });
-    // Language
-    document.querySelectorAll(".settings-lang-option").forEach(function(el) {
-      el.classList.toggle("active", el.getAttribute("data-lang") === currentLang);
     });
   }
   function hideSettings() {
@@ -1109,20 +1160,9 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     document.querySelectorAll(".settings-theme-card").forEach(function(c) {
       c.classList.toggle("active", c.getAttribute("data-theme") === theme);
     });
-    if (theme === "dark") document.documentElement.style.colorScheme = "dark";
-    else if (theme === "light") document.documentElement.style.colorScheme = "light";
-    else document.documentElement.style.colorScheme = "";
+    applyTheme(theme);
   });
 
-  // Language (in settings)
-  document.getElementById("settings-lang-options").addEventListener("click", function(e) {
-    var btn = e.target.closest(".settings-lang-option");
-    if (!btn) return;
-    setLang(btn.getAttribute("data-lang"));
-    document.querySelectorAll(".settings-lang-option").forEach(function(el) {
-      el.classList.toggle("active", el.getAttribute("data-lang") === currentLang);
-    });
-  });
 
   // --- Welcome state ---
   function getGreeting() {
