@@ -10,6 +10,10 @@ const TEXTS: Record<string, Record<Lang, string>> = {
     en: "Config already exists at {path}\nCurrent channel(s): {channel}",
     zh: "配置文件已存在: {path}\n当前通道: {channel}",
   },
+  config_parse_error: {
+    en: "Existing config at {path} is invalid, starting fresh",
+    zh: "现有配置文件 {path} 格式错误，将重新配置",
+  },
   overwrite: {
     en: "Overwrite existing config?",
     zh: "是否覆盖现有配置?",
