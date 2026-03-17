@@ -155,8 +155,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 #status::before{content:"";width:6px;height:6px;border-radius:50%;background:#16a34a}
 #status.disconnected{color:#dc2626;background:rgba(220,38,38,0.06)}
 #status.disconnected::before{background:#dc2626}
-#admin-link{font-size:13px;font-weight:500;color:var(--fg-tertiary);text-decoration:none;padding:4px 8px;border-radius:var(--radius-sm);transition:all var(--transition)}
-#admin-link:hover{color:var(--fg);background:var(--bg-hover)}
 
 /* ─── Welcome State ─── */
 #welcome{
@@ -515,7 +513,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
         </button>
       </div>
       <div class="header-right">
-        <a id="admin-link" href="/admin" style="display:none" data-i18n="admin">Admin</a>
         <span id="status" data-i18n="connected">Connected</span>
       </div>
     </div>
@@ -585,6 +582,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       new_chat_nav: "New chat",
       menu_settings: "Settings",
       menu_language: "Language",
+      menu_admin: "Admin",
       menu_help: "Get help",
       menu_logout: "Log out",
       attach_file: "Attach file",
@@ -631,6 +629,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       new_chat_nav: "新对话",
       menu_settings: "设置",
       menu_language: "语言",
+      menu_admin: "管理面板",
       menu_help: "获取帮助",
       menu_logout: "退出登录",
       attach_file: "附加文件",
@@ -731,8 +730,9 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     var arrowSvg = '<svg class="menu-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>';
     userMenuEl.innerHTML =
       '<div class="user-menu-email">' + escHtml(currentUser.email || "") + '</div>' +
-      (isAdmin ? '<button class="user-menu-item" id="menu-settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>' + tt("menu_settings") + '</span></button>' : '') +
+      '<button class="user-menu-item" id="menu-settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>' + tt("menu_settings") + '</span></button>' +
       '<button class="user-menu-item" id="menu-language"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg><span>' + tt("menu_language") + '</span>' + arrowSvg + '</button>' +
+      (isAdmin ? '<button class="user-menu-item" id="menu-admin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span>' + tt("menu_admin") + '</span></button>' : '') +
       '<button class="user-menu-item" id="menu-help"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg><span>' + tt("menu_help") + '</span></button>' +
       '<div class="user-menu-sep"></div>' +
       '<button class="user-menu-item" id="menu-logout"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span>' + tt("menu_logout") + '</span></button>';
@@ -792,6 +792,9 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     var item = e.target.closest(".user-menu-item");
     if (!item) return;
     if (item.id === "menu-settings") {
+      closeUserMenu();
+      window.location.href = "/settings";
+    } else if (item.id === "menu-admin") {
       closeUserMenu();
       window.location.href = "/admin";
     } else if (item.id === "menu-language") {
@@ -1705,11 +1708,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     });
   }
 
-  // Admin link
-  if (isAdmin) {
-    var adminLink = document.getElementById("admin-link");
-    if (adminLink) { adminLink.href = "/admin"; adminLink.style.display = ""; }
-  }
 
   } // end initChat
 })();

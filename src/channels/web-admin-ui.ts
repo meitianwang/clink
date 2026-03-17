@@ -15,7 +15,7 @@ export function getAdminHtml(): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Klaus Admin</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 :root {
@@ -23,9 +23,8 @@ export function getAdminHtml(): string {
   --card-bg: #f8fafc; --accent: #020617; --accent-text: #ffffff;
   --accent-hover: #334155; --danger: #dc2626; --danger-hover: #b91c1c;
   --success: #16a34a; --muted: #64748b; --user-bg: #f1f5f9; --bot-bg: #ffffff;
-  --sidebar-bg: #f8fafc; --sidebar-hover: #e2e8f0; --sidebar-active: #020617;
-  --sidebar-active-text: #ffffff;
-  --font-main: 'Inter', -apple-system, sans-serif;
+  --bg-hover: #f1f5f9;
+  --font-main: 'Plus Jakarta Sans', -apple-system, sans-serif;
   --font-mono: 'SF Mono', 'Consolas', 'Monaco', monospace;
 }
 @media(prefers-color-scheme: dark) {
@@ -34,59 +33,61 @@ export function getAdminHtml(): string {
     --card-bg: #1e293b; --accent: #f8fafc; --accent-text: #0f172a;
     --accent-hover: #e2e8f0; --danger: #ef4444; --danger-hover: #dc2626;
     --success: #22c55e; --muted: #94a3b8; --user-bg: #1e293b; --bot-bg: #0f172a;
-    --sidebar-bg: #1e293b; --sidebar-hover: #334155; --sidebar-active: #f8fafc;
-    --sidebar-active-text: #0f172a;
+    --bg-hover: #334155;
   }
 }
 html, body { height: 100%; font-family: var(--font-main); background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; }
-#app { display: flex; height: 100vh; }
+#app { display: flex; max-width: 960px; margin: 0 auto; min-height: 100vh; padding: 48px 24px; }
 
-/* Sidebar */
+/* Sidebar nav */
 #sidebar {
-  width: 220px; min-width: 220px;
-  background: var(--sidebar-bg);
-  border-right: 1px solid var(--border);
-  display: flex; flex-direction: column;
-  padding: 16px 0;
+  width: 200px; min-width: 200px; padding-right: 32px;
+  position: sticky; top: 48px; align-self: flex-start;
 }
 .sidebar-brand {
-  display: flex; align-items: center; gap: 10px;
-  padding: 0 20px 20px; font-weight: 600; font-size: 18px;
-  border-bottom: 1px solid var(--border); margin-bottom: 8px;
+  font-size: 24px; font-weight: 600; margin-bottom: 20px;
 }
-.sidebar-brand img { width: 26px; height: 26px; border-radius: 6px; }
-.sidebar-nav { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; }
+.sidebar-brand img { display: none; }
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px; border-radius: 8px;
+  display: block; width: 100%; padding: 8px 12px; border-radius: 8px;
   font-size: 14px; font-weight: 500; color: var(--muted);
   cursor: pointer; transition: all 0.15s; text-decoration: none;
-  border: none; background: none; width: 100%; text-align: left;
+  border: none; background: none; text-align: left; font-family: var(--font-main);
 }
-.nav-item:hover { background: var(--sidebar-hover); color: var(--fg); }
-.nav-item.active { background: var(--sidebar-active); color: var(--sidebar-active-text); }
-.nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+.nav-item:hover { background: var(--bg-hover); color: var(--fg); }
+.nav-item.active { background: var(--bg-hover); color: var(--fg); font-weight: 600; }
+.nav-item svg { display: none; }
 .sidebar-footer {
-  padding: 12px 20px; border-top: 1px solid var(--border); margin-top: auto;
+  margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--border);
 }
 .sidebar-footer a {
   font-size: 13px; color: var(--muted); text-decoration: none;
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 8px;
+  transition: all 0.15s;
 }
-.sidebar-footer a:hover { color: var(--fg); }
+.sidebar-footer a:hover { color: var(--fg); background: var(--bg-hover); }
 
 /* Content area */
-#content { flex: 1; overflow-y: auto; padding: 32px 40px; }
+#content { flex: 1; overflow-y: visible; min-width: 0; }
 #content-inner { max-width: 720px; }
-@media(max-width: 900px) { #content { padding: 24px 20px; } }
+@media(max-width: 900px) { #app { padding: 24px 16px; } }
 
-.page-title { font-size: 20px; font-weight: 600; margin-bottom: 24px; }
+.nav-back {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 14px; color: var(--muted); text-decoration: none;
+  margin-bottom: 24px; padding: 4px 0; transition: color 0.15s;
+}
+.nav-back:hover { color: var(--fg); }
+.nav-back svg { width: 16px; height: 16px; }
+.page-title { display: none; }
 
 /* Section cards */
-.section { margin-bottom: 28px; }
+.section { margin-bottom: 32px; }
 .section-header {
-  font-size: 12px; font-weight: 600; color: var(--muted);
-  text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;
+  font-size: 18px; font-weight: 600; margin-bottom: 16px; padding-bottom: 12px;
+  border-bottom: 1px solid var(--border); color: var(--fg);
+  text-transform: none; letter-spacing: 0;
 }
 .card {
   background: var(--card-bg); border: 1px solid var(--border);
@@ -213,10 +214,11 @@ tr.clickable:hover { background: var(--card-bg); }
 
 /* Mobile */
 @media(max-width: 640px) {
-  #sidebar { width: 56px; min-width: 56px; }
-  .sidebar-brand span, .nav-item span, .sidebar-footer { display: none; }
-  .sidebar-brand { padding: 0 15px 16px; }
-  .nav-item { justify-content: center; padding: 10px; }
+  #app { flex-direction: column; padding: 24px 16px; }
+  #sidebar { width: 100%; min-width: 0; padding-right: 0; position: static; margin-bottom: 24px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .sidebar-brand { margin-bottom: 0; margin-right: auto; font-size: 20px; }
+  .sidebar-nav { flex-direction: row; flex-wrap: wrap; gap: 4px; }
+  .sidebar-footer { display: none; }
   .nav-item svg { width: 20px; height: 20px; }
   #content { padding: 20px 16px; }
   .task-form-grid { grid-template-columns: 1fr; }
@@ -226,29 +228,21 @@ tr.clickable:hover { background: var(--card-bg); }
 <body>
 <div id="app">
   <nav id="sidebar">
-    <div class="sidebar-brand">
-      <img src="/logo.png" alt="Klaus" />
-      <span>Klaus Admin</span>
-    </div>
+    <div class="sidebar-brand" data-i18n="admin_title">Admin</div>
     <div class="sidebar-nav">
       <button class="nav-item active" data-tab="settings">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span data-i18n="tab_settings">Settings</span>
       </button>
       <button class="nav-item" data-tab="claude">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>
         <span data-i18n="tab_claude">Model Config</span>
       </button>
       <button class="nav-item" data-tab="users">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         <span data-i18n="tab_users">Users</span>
       </button>
       <button class="nav-item" data-tab="invites">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
         <span data-i18n="tab_invites">Invites</span>
       </button>
       <button class="nav-item" data-tab="cron">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
         <span data-i18n="tab_cron">Cron</span>
       </button>
     </div>
@@ -261,6 +255,10 @@ tr.clickable:hover { background: var(--card-bg); }
   </nav>
 
   <main id="content"><div id="content-inner">
+    <a href="/" class="nav-back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+      <span data-i18n="back_klaus">Back to Klaus</span>
+    </a>
 
     <!-- ============ Settings Tab ============ -->
     <div id="tab-settings" class="tab-panel active">
@@ -544,8 +542,9 @@ tr.clickable:hover { background: var(--card-bg); }
   // --- i18n ---
   var I18N = {
     en: {
+      admin_title: "Admin",
       tab_settings: "Settings", tab_users: "Users", tab_invites: "Invites", tab_cron: "Scheduled Tasks",
-      back_chat: "Back to Chat",
+      back_chat: "Back to Chat", back_klaus: "Back to Klaus",
       sec_general: "General", sec_web: "Web Server", sec_session: "Chat Sessions", sec_transcripts: "Transcripts",
       lbl_persona: "System Prompt",
       lbl_port: "Port", lbl_permissions: "Tool Permissions", lbl_auth_expire: "Auth Session Expiry",
@@ -575,8 +574,9 @@ tr.clickable:hover { background: var(--card-bg); }
       logged_in_as: "Logged in as", logged_in: "Logged in", not_logged_in: "Not logged in",
     },
     zh: {
+      admin_title: "管理面板",
       tab_settings: "设置", tab_users: "用户", tab_invites: "邀请码", tab_cron: "定时任务",
-      back_chat: "返回对话",
+      back_chat: "返回对话", back_klaus: "返回 Klaus",
       sec_general: "通用", sec_web: "Web 服务器", sec_session: "对话会话", sec_transcripts: "历史记录",
       lbl_persona: "系统提示词",
       lbl_port: "端口", lbl_permissions: "工具权限", lbl_auth_expire: "登录过期时间",

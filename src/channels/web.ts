@@ -67,6 +67,7 @@ import type {
 import type { InboundMessage, MediaFile } from "../message.js";
 import { getChatHtml } from "./web-ui.js";
 import { getAdminHtml } from "./web-admin-ui.js";
+import { getSettingsHtml } from "./web-settings-ui.js";
 import { getLoginHtml } from "./web-login-ui.js";
 import { startTunnel } from "./web-tunnel.js";
 import { formatToolEvent, type ToolPayload } from "../tool-config.js";
@@ -519,6 +520,16 @@ function serveAdmin(req: IncomingMessage, res: ServerResponse): void {
     return;
   }
   serveHtmlPage(res, getAdminHtml());
+}
+
+function serveSettings(req: IncomingMessage, res: ServerResponse): void {
+  const auth = authenticateRequest(req);
+  if (auth.kind === "invalid") {
+    res.writeHead(302, { Location: "/login" });
+    res.end();
+    return;
+  }
+  serveHtmlPage(res, getSettingsHtml(auth.user!));
 }
 
 // ---------------------------------------------------------------------------
@@ -1999,6 +2010,8 @@ async function handleRequest(
       return serveLogin(res, cfg);
     case "/admin":
       return serveAdmin(req, res);
+    case "/settings":
+      return serveSettings(req, res);
     case "/logo.png":
       return servePublicFile(res, "logo.png", "image/png");
     case "/avatar.jpg":
