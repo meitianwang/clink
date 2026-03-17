@@ -469,6 +469,16 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
 .user-menu-item .menu-check{margin-left:auto;color:var(--fg-tertiary);width:16px;height:16px;display:none}
 .user-menu-item.active .menu-check{display:block}
 
+/* ─── Admin View ─── */
+#admin-view{
+  position:absolute;inset:0;background:var(--bg);z-index:5;
+  overflow:hidden;display:none;flex-direction:column;
+}
+#admin-view[style*="display:flex"],#admin-view[style*="display: flex"]{display:flex!important}
+.admin-inner{display:flex;flex-direction:column;height:100%;padding:16px 24px 0}
+.admin-inner .settings-back{flex-shrink:0;margin-bottom:8px}
+#admin-iframe{flex:1;min-height:0}
+
 /* ─── Settings View ─── */
 #settings-view{
   position:absolute;inset:0;background:var(--bg);z-index:5;
@@ -597,6 +607,16 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
           </button>
         </div>
+      </div>
+    </div>
+    <!-- Admin view (hidden by default) -->
+    <div id="admin-view" style="display:none">
+      <div class="admin-inner">
+        <button class="settings-back" id="admin-back">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+          <span data-i18n="settings_back">Back</span>
+        </button>
+        <iframe id="admin-iframe" src="" style="width:100%;border:none;flex:1"></iframe>
       </div>
     </div>
     <!-- Settings view (hidden by default) -->
@@ -938,7 +958,7 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       showSettings();
     } else if (item.id === "menu-admin") {
       closeUserMenu();
-      window.location.href = "/admin";
+      showAdmin();
     } else if (item.id === "menu-language") {
       toggleLangPanel(!langPanelOpen);
     } else if (item.id === "menu-help") {
@@ -952,11 +972,31 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   });
   document.addEventListener("click", function() { closeUserMenu(); closeLangPanel(); });
 
-  // --- Settings view ---
-  var settingsView = document.getElementById("settings-view");
+  // --- Shared: chat elements to hide/show ---
   var chatElements = [document.getElementById("header"), document.getElementById("welcome"), document.getElementById("messages"), document.getElementById("input-wrapper")];
 
+  // --- Admin view ---
+  var adminView = document.getElementById("admin-view");
+  var adminIframe = document.getElementById("admin-iframe");
+  function showAdmin() {
+    document.getElementById("settings-view").style.display = "none";
+    adminView.style.display = "flex";
+    chatElements.forEach(function(el) { if (el) el.style.display = "none"; });
+    if (!adminIframe.src || adminIframe.src === "about:blank" || !adminIframe.src.includes("/admin")) {
+      adminIframe.src = "/admin?embed=1";
+    }
+  }
+  function hideAdmin() {
+    adminView.style.display = "none";
+    chatElements.forEach(function(el) { if (el) el.style.display = ""; });
+  }
+  document.getElementById("admin-back").addEventListener("click", hideAdmin);
+
+  // --- Settings view ---
+  var settingsView = document.getElementById("settings-view");
+
   function showSettings() {
+    adminView.style.display = "none";
     settingsView.style.display = "block";
     chatElements.forEach(function(el) { if (el) el.style.display = "none"; });
     // Populate

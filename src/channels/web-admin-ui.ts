@@ -539,6 +539,14 @@ tr.clickable:hover { background: var(--card-bg); }
 
   function initAdmin() {
 
+  // --- Embed mode: hide back links when loaded in iframe ---
+  if (new URLSearchParams(location.search).get("embed") === "1") {
+    var sf = document.querySelector(".sidebar-footer");
+    if (sf) sf.style.display = "none";
+    var nb = document.querySelector(".nav-back");
+    if (nb) nb.style.display = "none";
+  }
+
   // --- i18n ---
   var I18N = {
     en: {
