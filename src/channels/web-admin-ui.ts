@@ -398,13 +398,6 @@ tr.clickable:hover { background: var(--card-bg); }
             <span class="card-label"></span>
             <span class="card-control"><button class="btn btn-primary btn-sm" id="claude-login-btn" data-i18n="btn_login">Login</button></span>
           </div>
-          <div class="card-row" id="claude-code-row" style="display:none">
-            <span class="card-label" data-i18n="lbl_auth_code">Auth Code</span>
-            <span class="card-control" style="display:flex;gap:8px;align-items:center">
-              <input class="f-input" id="claude-auth-code" placeholder="Paste authentication code here" style="flex:1" />
-              <button class="btn btn-primary btn-sm" id="claude-submit-code-btn" data-i18n="btn_submit">Submit</button>
-            </span>
-          </div>
         </div>
       </div>
 
@@ -578,9 +571,7 @@ tr.clickable:hover { background: var(--card-bg); }
       sec_auth: "Authentication", sec_mode: "Mode", sec_thirdparty: "Third-party API", sec_model_map: "Model Mapping",
       lbl_auth_status: "Status", lbl_mode: "Mode", lbl_default_model: "Default Model",
       lbl_base_url: "API Base URL", lbl_auth_token: "Auth Token", lbl_api_timeout: "API Timeout (ms)",
-      btn_login: "Login", btn_submit: "Submit", login_pending: "Opening login page...", login_failed: "Login failed",
-      lbl_auth_code: "Auth Code", code_hint: "Paste the authentication code from browser",
-      code_submitted: "Code submitted, verifying...", code_no_session: "Login session expired, try again",
+      btn_login: "Login", login_pending: "Waiting for login...", login_failed: "Login failed",
       logged_in_as: "Logged in as", logged_in: "Logged in", not_logged_in: "Not logged in",
     },
     zh: {
@@ -611,9 +602,7 @@ tr.clickable:hover { background: var(--card-bg); }
       sec_auth: "认证", sec_mode: "模式", sec_thirdparty: "第三方 API", sec_model_map: "模型映射",
       lbl_auth_status: "状态", lbl_mode: "模式", lbl_default_model: "默认模型",
       lbl_base_url: "API 地址", lbl_auth_token: "认证令牌", lbl_api_timeout: "API 超时 (ms)",
-      btn_login: "登录", btn_submit: "提交", login_pending: "正在打开登录页面...", login_failed: "登录失败",
-      lbl_auth_code: "认证码", code_hint: "从浏览器粘贴认证码",
-      code_submitted: "已提交，验证中...", code_no_session: "登录会话已过期，请重试",
+      btn_login: "登录", login_pending: "等待登录...", login_failed: "登录失败",
       logged_in_as: "已登录：", logged_in: "已登录", not_logged_in: "未登录",
     }
   };
@@ -741,28 +730,21 @@ tr.clickable:hover { background: var(--card-bg); }
   var cLoginBtn = document.getElementById("claude-login-btn");
   var cSaveBtn = document.getElementById("claude-save-btn");
   var cSaveStatus = document.getElementById("claude-save-status");
-  var cCodeRow = document.getElementById("claude-code-row");
-  var cAuthCode = document.getElementById("claude-auth-code");
-  var cSubmitCodeBtn = document.getElementById("claude-submit-code-btn");
-
   function showAuthLoggedIn(email) {
     cAuthStatus.textContent = email ? tt("logged_in_as") + " " + email : tt("logged_in");
     cAuthStatus.style.color = "var(--color-success)";
     cLoginRow.style.display = "none";
-    cCodeRow.style.display = "none";
   }
 
   function showAuthNotLoggedIn() {
     cAuthStatus.textContent = tt("not_logged_in");
     cAuthStatus.style.color = "var(--color-danger)";
     if (cMode.value === "official") cLoginRow.style.display = "";
-    cCodeRow.style.display = "none";
   }
 
   function toggleThirdparty() {
     cThirdpartySection.style.display = cMode.value === "thirdparty" ? "" : "none";
     cLoginRow.style.display = cMode.value === "official" ? "" : "none";
-    cCodeRow.style.display = "none";
   }
   cMode.addEventListener("change", toggleThirdparty);
 
@@ -792,50 +774,37 @@ tr.clickable:hover { background: var(--card-bg); }
     });
   }
 
-  // Login flow: click Login → open OAuth URL → show code input → submit code
+  // Login flow: click Login → open OAuth URL → poll until auth completes
+  var loginPollTimer = null;
   cLoginBtn.addEventListener("click", function() {
     cLoginBtn.disabled = true;
     cLoginBtn.textContent = tt("login_pending");
     api("claude/login", "POST").then(function(d) {
-      cLoginBtn.disabled = false;
-      cLoginBtn.textContent = tt("btn_login");
       if (d && d.url) {
         window.open(d.url, "_blank");
-        // Show the code input row
-        cCodeRow.style.display = "";
-        cAuthCode.value = "";
-        cAuthCode.focus();
-      } else {
-        showToast(tt("login_failed"));
-      }
-    });
-  });
-
-  // Submit authentication code
-  cSubmitCodeBtn.addEventListener("click", function() {
-    var code = cAuthCode.value.trim();
-    if (!code) return;
-    cSubmitCodeBtn.disabled = true;
-    cSubmitCodeBtn.textContent = tt("code_submitted");
-    api("claude/submit-code", "POST", { code: code }).then(function(d) {
-      cSubmitCodeBtn.disabled = false;
-      cSubmitCodeBtn.textContent = tt("btn_submit");
-      if (d && d.ok) {
-        // Poll auth status a few times to confirm login completed
-        var attempts = 0;
-        var pollTimer = setInterval(function() {
-          attempts++;
+        loginPollTimer = setInterval(function() {
           api("claude/auth-status", "GET").then(function(s) {
             if (s && s.loggedIn) {
-              clearInterval(pollTimer);
+              clearInterval(loginPollTimer);
+              loginPollTimer = null;
+              cLoginBtn.disabled = false;
+              cLoginBtn.textContent = tt("btn_login");
               showAuthLoggedIn(s.email);
-            } else if (attempts >= 5) {
-              clearInterval(pollTimer);
             }
           });
-        }, 2000);
+        }, 3000);
+        setTimeout(function() {
+          if (loginPollTimer) {
+            clearInterval(loginPollTimer);
+            loginPollTimer = null;
+            cLoginBtn.disabled = false;
+            cLoginBtn.textContent = tt("btn_login");
+          }
+        }, 300000);
       } else {
-        showToast((d && d.error) || tt("code_no_session"));
+        cLoginBtn.disabled = false;
+        cLoginBtn.textContent = tt("btn_login");
+        showToast(tt("login_failed"));
       }
     });
   });

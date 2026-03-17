@@ -112,39 +112,17 @@ export function readClaudeAuthStatus(): Promise<ClaudeAuthStatus> {
 }
 
 /**
- * Active login session — at most one at a time.
- * The child process stays alive waiting for the user to paste the
- * Authentication Code into its stdin.
- */
-let activeLoginChild: ReturnType<typeof nodeSpawn> | null = null;
-let activeLoginTimer: ReturnType<typeof setTimeout> | null = null;
-
-function cleanupLogin(): void {
-  if (activeLoginTimer) {
-    clearTimeout(activeLoginTimer);
-    activeLoginTimer = null;
-  }
-  if (activeLoginChild) {
-    activeLoginChild.kill();
-    activeLoginChild = null;
-  }
-}
-
-/**
- * Spawn `claude auth login` and capture the OAuth URL from output.
- * The child process stays alive so `submitLoginCode()` can later
- * write the Authentication Code to its stdin.
+ * Spawn `claude auth login` and capture the OAuth URL.
+ * The child process stays alive — the CLI polls until the user
+ * completes OAuth in their browser.
+ * Killed after 5 minutes if still running.
  */
 export function startClaudeLogin(): Promise<{ url: string | null }> {
-  // Kill any previous login session
-  cleanupLogin();
-
   return new Promise((resolve) => {
     const child = nodeSpawn(getClaudeBin(), ["auth", "login"], {
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env, BROWSER: "echo" },
     });
-    activeLoginChild = child;
 
     let resolved = false;
     let output = "";
@@ -164,32 +142,20 @@ export function startClaudeLogin(): Promise<{ url: string | null }> {
     child.stderr.on("data", (chunk: Buffer) => tryExtractUrl(chunk.toString()));
 
     child.on("close", () => {
-      activeLoginChild = null;
       if (!resolved) {
         resolved = true;
         resolve({ url: null });
       }
     });
 
-    // Timeout: kill after 5 minutes
-    activeLoginTimer = setTimeout(() => {
-      cleanupLogin();
+    setTimeout(() => {
+      child.kill();
       if (!resolved) {
         resolved = true;
         resolve({ url: null });
       }
     }, 300_000);
   });
-}
-
-/**
- * Write the Authentication Code to the active login process's stdin.
- * Returns true if the code was submitted, false if no active login session.
- */
-export function submitLoginCode(code: string): boolean {
-  if (!activeLoginChild || !activeLoginChild.stdin) return false;
-  activeLoginChild.stdin.write(code + "\n");
-  return true;
 }
 
 // ---------------------------------------------------------------------------

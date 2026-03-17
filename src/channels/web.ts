@@ -91,7 +91,6 @@ import {
   writeClaudeSettings,
   readClaudeAuthStatus,
   startClaudeLogin,
-  submitLoginCode,
 } from "../claude-setup.js";
 import { validateLocalToken } from "../local-token.js";
 
@@ -1705,40 +1704,6 @@ async function handleAdminClaudeAuthStatus(
   jsonResponse(res, 200, { ...status });
 }
 
-async function handleAdminClaudeSubmitCode(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  if (!adminAuth(req, res)) return;
-
-  if (req.method !== "POST") {
-    jsonResponse(res, 405, { error: "method not allowed" });
-    return;
-  }
-
-  const body = await readBody(req, 1024);
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(body.toString()) as Record<string, unknown>;
-  } catch {
-    jsonResponse(res, 400, { error: "invalid JSON" });
-    return;
-  }
-
-  const code = String(parsed.code ?? "").trim();
-  if (!code) {
-    jsonResponse(res, 400, { error: "code is required" });
-    return;
-  }
-
-  const ok = submitLoginCode(code);
-  if (ok) {
-    jsonResponse(res, 200, { ok: true });
-  } else {
-    jsonResponse(res, 409, { error: "no active login session" });
-  }
-}
-
 async function handleAdminCronTasks(
   req: IncomingMessage,
   res: ServerResponse,
@@ -2116,9 +2081,6 @@ async function handleRequest(
       return handleAdminClaudeLogin(req, res);
     case "/api/admin/claude/auth-status":
       return handleAdminClaudeAuthStatus(req, res);
-    case "/api/admin/claude/submit-code":
-      return handleAdminClaudeSubmitCode(req, res);
-
     // Upload
     case "/api/upload":
       if (req.method !== "POST") {
