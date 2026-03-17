@@ -1416,7 +1416,6 @@ function buildSettingsResponse(): Record<string, unknown> {
     persona: (cfg.persona as string) ?? "",
     // Web
     web: {
-      port: Number(webCfg.port ?? process.env.KLAUS_WEB_PORT ?? 3000),
       permissions: Boolean(
         webCfg.permissions ?? process.env.KLAUS_WEB_PERMISSIONS === "true",
       ),
@@ -1486,10 +1485,6 @@ async function handleAdminSettings(
       const webPatch = parsed.web as Record<string, unknown>;
       const webCfg = (cfg.web as Record<string, unknown>) ?? {};
 
-      if ("port" in webPatch) {
-        const port = Math.floor(Number(webPatch.port));
-        if (port > 0 && port <= 65535) webCfg.port = port;
-      }
       if ("permissions" in webPatch) {
         webCfg.permissions = Boolean(webPatch.permissions);
       }

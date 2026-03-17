@@ -294,13 +294,6 @@ tr.clickable:hover { background: var(--card-bg); }
         <div class="card">
           <div class="card-row">
             <div class="card-label">
-              <div data-i18n="lbl_port">Port</div>
-              <div class="card-hint" data-i18n="hint_restart">Restart required</div>
-            </div>
-            <div class="card-control"><input id="s-port" type="number" class="f-input f-input-sm" min="1" max="65535"></div>
-          </div>
-          <div class="card-row">
-            <div class="card-label">
               <div data-i18n="lbl_permissions">Tool Permissions</div>
               <div class="card-hint" data-i18n="hint_permissions">Require user approval for write operations</div>
             </div>
@@ -572,8 +565,8 @@ tr.clickable:hover { background: var(--card-bg); }
       back_chat: "Back to Chat", back_klaus: "Back to Klaus",
       sec_general: "General", sec_web: "Web Server", sec_session: "Chat Sessions", sec_transcripts: "Transcripts",
       lbl_persona: "System Prompt",
-      lbl_port: "Port", lbl_permissions: "Tool Permissions", lbl_auth_expire: "Auth Session Expiry",
-      hint_restart: "Restart required", hint_permissions: "Require user approval for write operations", hint_auth_expire: "Days before login sessions expire", hint_idle: "New session after inactivity",
+      lbl_permissions: "Tool Permissions", lbl_auth_expire: "Auth Session Expiry",
+      hint_permissions: "Require user approval for write operations", hint_auth_expire: "Days before login sessions expire", hint_idle: "New session after inactivity",
       lbl_idle: "Idle Timeout", lbl_max_sessions: "Max Stored Sessions", lbl_ses_age: "Session Retention",
       lbl_tx_max_files: "Max Files", lbl_tx_age: "Retention",
       unit_days: "days", unit_minutes: "min",
@@ -604,8 +597,8 @@ tr.clickable:hover { background: var(--card-bg); }
       back_chat: "返回对话", back_klaus: "返回 Klaus",
       sec_general: "通用", sec_web: "Web 服务器", sec_session: "对话会话", sec_transcripts: "历史记录",
       lbl_persona: "系统提示词",
-      lbl_port: "端口", lbl_permissions: "工具权限", lbl_auth_expire: "登录过期时间",
-      hint_restart: "需要重启", hint_permissions: "写操作需要用户在浏览器中确认", hint_auth_expire: "登录会话过期天数", hint_idle: "空闲后自动创建新会话",
+      lbl_permissions: "工具权限", lbl_auth_expire: "登录过期时间",
+      hint_permissions: "写操作需要用户在浏览器中确认", hint_auth_expire: "登录会话过期天数", hint_idle: "空闲后自动创建新会话",
       lbl_idle: "空闲超时", lbl_max_sessions: "最大存储会话数", lbl_ses_age: "会话保留时间",
       lbl_tx_max_files: "最大文件数", lbl_tx_age: "保留时间",
       unit_days: "天", unit_minutes: "分钟",
@@ -682,7 +675,6 @@ tr.clickable:hover { background: var(--card-bg); }
   // SETTINGS TAB
   // =====================================================
   var sPersona = document.getElementById("s-persona");
-  var sPort = document.getElementById("s-port");
   var sPerm = document.getElementById("s-permissions");
   var sPermLabel = document.getElementById("s-permissions-label");
   var sWebSesAge = document.getElementById("s-web-session-age");
@@ -700,7 +692,6 @@ tr.clickable:hover { background: var(--card-bg); }
     api("settings", "GET").then(function(d) {
       sPersona.value = d.persona || "";
       // Web
-      sPort.value = d.web.port;
       sPerm.checked = d.web.permissions;
       sPermLabel.textContent = d.web.permissions ? tt("on") : tt("off");
       sWebSesAge.value = d.web.session_max_age_days;
@@ -719,7 +710,6 @@ tr.clickable:hover { background: var(--card-bg); }
     api("settings", "PATCH", {
       persona: sPersona.value.trim(),
       web: {
-        port: parseInt(sPort.value, 10),
         permissions: sPerm.checked,
         session_max_age_days: parseInt(sWebSesAge.value, 10),
       },
