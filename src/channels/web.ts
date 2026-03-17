@@ -56,6 +56,8 @@ import {
   loadTranscriptsConfig,
   loadCronConfig,
   CONFIG_FILE,
+  loadClaudeConfig,
+  VALID_MODEL_TIERS,
 } from "../config.js";
 import type {
   CronTask,
@@ -85,6 +87,11 @@ import {
   handleGoogleCallback,
 } from "./web-auth.js";
 import { DEFAULT_PERSONA } from "../persona.js";
+import {
+  writeClaudeSettings,
+  readClaudeAuthStatus,
+  startClaudeLogin,
+} from "../claude-setup.js";
 import { validateLocalToken } from "../local-token.js";
 
 // ---------------------------------------------------------------------------
@@ -1575,6 +1582,128 @@ async function handleAdminSettings(
 // Admin: cron tasks CRUD
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Admin: Claude model config
+// ---------------------------------------------------------------------------
+
+const VALID_MODES = new Set(["official", "thirdparty"]);
+
+async function handleAdminClaude(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!adminAuth(req, res)) return;
+
+  if (req.method === "GET") {
+    const [claude, auth] = await Promise.all([
+      loadClaudeConfig(),
+      readClaudeAuthStatus(),
+    ]);
+    jsonResponse(res, 200, { claude, auth });
+    return;
+  }
+
+  if (req.method === "PATCH") {
+    const body = await readBody(req, 8192);
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(body.toString()) as Record<string, unknown>;
+    } catch {
+      jsonResponse(res, 400, { error: "invalid JSON" });
+      return;
+    }
+
+    const mode = String(parsed.mode ?? "");
+    if (!VALID_MODES.has(mode)) {
+      jsonResponse(res, 400, { error: "mode must be 'official' or 'thirdparty'" });
+      return;
+    }
+
+    const model = String(parsed.model ?? "sonnet");
+    if (!VALID_MODEL_TIERS.has(model)) {
+      jsonResponse(res, 400, { error: "model must be 'opus', 'sonnet', or 'haiku'" });
+      return;
+    }
+
+    if (mode === "thirdparty") {
+      if (!parsed.base_url || !parsed.auth_token) {
+        jsonResponse(res, 400, {
+          error: "base_url and auth_token are required for thirdparty mode",
+        });
+        return;
+      }
+    }
+
+    // Build config.yaml claude section
+    const claudeYaml: Record<string, unknown> = { mode, model };
+    if (mode === "thirdparty") {
+      claudeYaml.base_url = String(parsed.base_url);
+      claudeYaml.auth_token = String(parsed.auth_token);
+      if (parsed.model_map && typeof parsed.model_map === "object") {
+        const raw = parsed.model_map as Record<string, unknown>;
+        const map: Record<string, string> = {};
+        for (const k of ["haiku", "sonnet", "opus"]) {
+          if (raw[k]) map[k] = String(raw[k]);
+        }
+        if (Object.keys(map).length > 0) claudeYaml.model_map = map;
+      }
+      if (parsed.api_timeout_ms != null) {
+        const t = Math.floor(Number(parsed.api_timeout_ms));
+        if (Number.isFinite(t) && t > 0) claudeYaml.api_timeout_ms = t;
+      }
+    }
+
+    // Save to config.yaml
+    const cfg = loadConfig();
+    cfg.claude = claudeYaml;
+    delete cfg.oneproxy; // migrate away from old config
+    saveConfig(cfg);
+
+    // Regenerate settings.json
+    const newCfg = loadClaudeConfig();
+    writeClaudeSettings(newCfg);
+
+    jsonResponse(res, 200, { ok: true, claude: newCfg });
+    return;
+  }
+
+  jsonResponse(res, 405, { error: "method not allowed" });
+}
+
+async function handleAdminClaudeLogin(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!adminAuth(req, res)) return;
+
+  if (req.method !== "POST") {
+    jsonResponse(res, 405, { error: "method not allowed" });
+    return;
+  }
+
+  const { url } = await startClaudeLogin();
+  if (url) {
+    jsonResponse(res, 200, { url });
+  } else {
+    jsonResponse(res, 500, { error: "could not get login URL" });
+  }
+}
+
+async function handleAdminClaudeAuthStatus(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  if (!adminAuth(req, res)) return;
+
+  if (req.method !== "GET") {
+    jsonResponse(res, 405, { error: "method not allowed" });
+    return;
+  }
+
+  const status = await readClaudeAuthStatus();
+  jsonResponse(res, 200, { ...status });
+}
+
 async function handleAdminCronTasks(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1946,6 +2075,12 @@ async function handleRequest(
       return handleAdminSettings(req, res);
     case "/api/admin/cron/tasks":
       return handleAdminCronTasks(req, res);
+    case "/api/admin/claude":
+      return handleAdminClaude(req, res);
+    case "/api/admin/claude/login":
+      return handleAdminClaudeLogin(req, res);
+    case "/api/admin/claude/auth-status":
+      return handleAdminClaudeAuthStatus(req, res);
 
     // Upload
     case "/api/upload":

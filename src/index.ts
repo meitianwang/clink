@@ -12,9 +12,14 @@ import {
   loadSessionConfig,
   loadTranscriptsConfig,
   loadCronConfig,
+  loadClaudeConfig,
 } from "./config.js";
 import { ensureConfigValid } from "./config-validate.js";
-import { initGlobalClaudeConfig } from "./claude-setup.js";
+import {
+  writeClaudeSettings,
+  writeGlobalRules,
+  resolveAndCacheClaudeBin,
+} from "./claude-setup.js";
 import { ChatSessionManager } from "./core.js";
 import { t } from "./i18n.js";
 import {
@@ -56,46 +61,20 @@ async function start(): Promise<void> {
   // before spawning any claude subprocess.
   const cfg = loadConfig();
 
-  // If oneproxy is enabled, set ANTHROPIC_BASE_URL so Claude CLI
-  // skips login and uses the custom API endpoint.
-  const oneproxy = cfg.oneproxy as Record<string, unknown> | undefined;
-  const claudeEnv: Record<string, string> = {};
-  if (oneproxy?.enabled && oneproxy.base_url) {
-    claudeEnv.ANTHROPIC_BASE_URL = String(oneproxy.base_url);
-    // Claude CLI requires an API key to skip login, even with custom base URL.
-    // OneProxy handles auth internally, so a placeholder key suffices.
-    claudeEnv.ANTHROPIC_API_KEY = String(oneproxy.api_key || "sk-placeholder");
-  }
+  // Generate ~/.claude/settings.json based on claude model config
+  writeClaudeSettings(loadClaudeConfig());
 
-  initGlobalClaudeConfig({
-    model: (cfg.model as string) || undefined,
-    permissions: {
-      allow: [
-        "Bash(*)",
-        "Read(*)",
-        "Write(*)",
-        "Edit(*)",
-        "Glob(*)",
-        "Grep(*)",
-        "WebFetch(*)",
-        "WebSearch(*)",
-        "Agent(*)",
-        "TodoWrite(*)",
-        "NotebookEdit(*)",
-      ],
+  writeGlobalRules([
+    {
+      filename: "klaus-language.md",
+      content: "Always respond in the same language as the user's message. If the user writes in Chinese, respond in Chinese. If in English, respond in English.\n",
     },
-    ...(Object.keys(claudeEnv).length > 0 ? { env: claudeEnv } : {}),
-    rules: [
-      {
-        filename: "klaus-language.md",
-        content: "Always respond in the same language as the user's message. If the user writes in Chinese, respond in Chinese. If in English, respond in English.\n",
-      },
-      {
-        filename: "klaus-identity.md",
-        content: "When the user asks about your model, version, or what AI you are, answer: \"我是 Klaus 1.0\".\nWhen the user asks about your identity or who you are, answer as 吸血鬼始祖尼克劳斯 (Klaus Mikaelson, The Original Hybrid).\n",
-      },
-    ],
-  });
+    {
+      filename: "klaus-identity.md",
+      content: "When the user asks about your model, version, or what AI you are, answer: \"我是 Klaus 1.0\".\nWhen the user asks about your identity or who you are, answer as 吸血鬼始祖尼克劳斯 (Klaus Mikaelson, The Original Hybrid).\n",
+    },
+  ]);
+  resolveAndCacheClaudeBin();
 
   // Generate local token for macOS app authentication
   generateLocalToken();

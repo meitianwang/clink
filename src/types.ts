@@ -102,6 +102,28 @@ export interface SessionConfig {
   readonly maxAgeMs: number;
 }
 
+// ---------------------------------------------------------------------------
+// Claude model configuration
+// ---------------------------------------------------------------------------
+
+export interface ClaudeModelConfig {
+  readonly mode: "official" | "thirdparty";
+  /** Default model tier: "opus", "sonnet", or "haiku". */
+  readonly model: string;
+  /** Third-party API base URL (required when mode=thirdparty). */
+  readonly baseUrl?: string;
+  /** Third-party auth token (required when mode=thirdparty). */
+  readonly authToken?: string;
+  /** Model name mapping for each tier (thirdparty only). */
+  readonly modelMap?: {
+    readonly haiku?: string;
+    readonly opus?: string;
+    readonly sonnet?: string;
+  };
+  /** API timeout in ms (thirdparty only). */
+  readonly apiTimeoutMs?: number;
+}
+
 export interface TranscriptsConfig {
   readonly transcriptsDir: string;
   readonly maxFiles: number;

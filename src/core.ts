@@ -145,15 +145,16 @@ class ClaudeChat {
     _onPermissionRequest?: PermissionRequestCallback,
   ): Promise<string> {
     // All config comes from native files:
-    //   model & permissions → ~/.claude/settings.json
-    //   persona            → <cwd>/CLAUDE.md
-    //   rules              → ~/.claude/rules/*.md
+    //   persona → <cwd>/CLAUDE.md
+    //   rules   → ~/.claude/rules/*.md
 
     const args = [
       "-p",
       "--output-format",
       "stream-json",
       "--verbose",
+      "--permission-mode",
+      "bypassPermissions",
     ];
 
     if (onStreamChunk) {

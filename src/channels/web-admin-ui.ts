@@ -235,6 +235,10 @@ tr.clickable:hover { background: var(--card-bg); }
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         <span data-i18n="tab_settings">Settings</span>
       </button>
+      <button class="nav-item" data-tab="claude">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 9h6v6H9z"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>
+        <span data-i18n="tab_claude">Model Config</span>
+      </button>
       <button class="nav-item" data-tab="users">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         <span data-i18n="tab_users">Users</span>
@@ -378,6 +382,89 @@ tr.clickable:hover { background: var(--card-bg); }
       </div>
     </div>
 
+    <!-- ============ Claude Model Config Tab ============ -->
+    <div id="tab-claude" class="tab-panel">
+      <h1 class="page-title" data-i18n="tab_claude">Model Config</h1>
+
+      <!-- Auth Status -->
+      <div class="section">
+        <div class="section-header" data-i18n="sec_auth">Authentication</div>
+        <div class="card">
+          <div class="card-row">
+            <span class="card-label" data-i18n="lbl_auth_status">Status</span>
+            <span class="card-control" id="claude-auth-status">—</span>
+          </div>
+          <div class="card-row" id="claude-login-row" style="display:none">
+            <span class="card-label"></span>
+            <span class="card-control"><button class="btn btn-primary btn-sm" id="claude-login-btn" data-i18n="btn_login">Login</button></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mode -->
+      <div class="section">
+        <div class="section-header" data-i18n="sec_mode">Mode</div>
+        <div class="card">
+          <div class="card-row">
+            <span class="card-label" data-i18n="lbl_mode">Mode</span>
+            <span class="card-control">
+              <select class="f-select" id="claude-mode">
+                <option value="official">Official Subscription</option>
+                <option value="thirdparty">Third-party API</option>
+              </select>
+            </span>
+          </div>
+          <div class="card-row">
+            <span class="card-label" data-i18n="lbl_default_model">Default Model</span>
+            <span class="card-control">
+              <select class="f-select" id="claude-model">
+                <option value="opus">opus</option>
+                <option value="sonnet">sonnet</option>
+                <option value="haiku">haiku</option>
+              </select>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Third-party settings -->
+      <div class="section" id="claude-thirdparty-section" style="display:none">
+        <div class="section-header" data-i18n="sec_thirdparty">Third-party API</div>
+        <div class="card">
+          <div class="card-row">
+            <span class="card-label" data-i18n="lbl_base_url">API Base URL</span>
+            <span class="card-control"><input class="f-input" id="claude-base-url" placeholder="http://localhost:9000" /></span>
+          </div>
+          <div class="card-row">
+            <span class="card-label" data-i18n="lbl_auth_token">Auth Token</span>
+            <span class="card-control"><input class="f-input" id="claude-auth-token" type="password" placeholder="sk-..." /></span>
+          </div>
+        </div>
+        <div class="section-header" data-i18n="sec_model_map">Model Mapping</div>
+        <div class="card">
+          <div class="card-row">
+            <span class="card-label">haiku →</span>
+            <span class="card-control"><input class="f-input" id="claude-map-haiku" placeholder="claude-haiku-4-5-20251001" /></span>
+          </div>
+          <div class="card-row">
+            <span class="card-label">sonnet →</span>
+            <span class="card-control"><input class="f-input" id="claude-map-sonnet" placeholder="claude-sonnet-4-6" /></span>
+          </div>
+          <div class="card-row">
+            <span class="card-label">opus →</span>
+            <span class="card-control"><input class="f-input" id="claude-map-opus" placeholder="claude-opus-4-6" /></span>
+          </div>
+          <div class="card-row">
+            <span class="card-label" data-i18n="lbl_api_timeout">API Timeout (ms)</span>
+            <span class="card-control"><input class="f-input" id="claude-api-timeout" type="number" placeholder="3000000" /></span>
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="claude-save-btn" data-i18n="btn_save">Save</button>
+      <span id="claude-save-status" style="margin-left:12px;color:var(--color-success)"></span>
+    </div>
+
     <!-- ============ Users Tab ============ -->
     <div id="tab-users" class="tab-panel">
       <div id="users-list" class="sub-view active">
@@ -480,6 +567,12 @@ tr.clickable:hover { background: var(--card-bg); }
       scheduler_running: "Running", scheduler_stopped: "Stopped",
       tasks_label: "tasks", active_label: "active", next_label: "Next",
       confirm_delete_task: "Delete this task?",
+      tab_claude: "Model Config",
+      sec_auth: "Authentication", sec_mode: "Mode", sec_thirdparty: "Third-party API", sec_model_map: "Model Mapping",
+      lbl_auth_status: "Status", lbl_mode: "Mode", lbl_default_model: "Default Model",
+      lbl_base_url: "API Base URL", lbl_auth_token: "Auth Token", lbl_api_timeout: "API Timeout (ms)",
+      btn_login: "Login", login_pending: "Waiting for login...", login_failed: "Login failed",
+      logged_in_as: "Logged in as", logged_in: "Logged in", not_logged_in: "Not logged in",
     },
     zh: {
       tab_settings: "设置", tab_users: "用户", tab_invites: "邀请码", tab_cron: "定时任务",
@@ -505,6 +598,12 @@ tr.clickable:hover { background: var(--card-bg); }
       scheduler_running: "运行中", scheduler_stopped: "已停止",
       tasks_label: "个任务", active_label: "活跃", next_label: "下次",
       confirm_delete_task: "确定删除此任务？",
+      tab_claude: "模型配置",
+      sec_auth: "认证", sec_mode: "模式", sec_thirdparty: "第三方 API", sec_model_map: "模型映射",
+      lbl_auth_status: "状态", lbl_mode: "模式", lbl_default_model: "默认模型",
+      lbl_base_url: "API 地址", lbl_auth_token: "认证令牌", lbl_api_timeout: "API 超时 (ms)",
+      btn_login: "登录", login_pending: "等待登录...", login_failed: "登录失败",
+      logged_in_as: "已登录：", logged_in: "已登录", not_logged_in: "未登录",
     }
   };
   var lang = localStorage.getItem("klaus_lang") || "en";
@@ -540,6 +639,7 @@ tr.clickable:hover { background: var(--card-bg); }
     tabPanels.forEach(function(p) { p.classList.toggle("active", p.id === "tab-" + id); });
     if (id === "users") showSubView("users-list");
     if (id === "cron") loadCronTasks();
+    if (id === "claude") loadClaude();
   }
   navItems.forEach(function(b) { b.addEventListener("click", function() { switchTab(b.dataset.tab); }); });
 
@@ -612,6 +712,128 @@ tr.clickable:hover { background: var(--card-bg); }
   };
 
   loadSettings();
+
+  // =====================================================
+  // CLAUDE MODEL CONFIG TAB
+  // =====================================================
+  var cMode = document.getElementById("claude-mode");
+  var cModel = document.getElementById("claude-model");
+  var cBaseUrl = document.getElementById("claude-base-url");
+  var cAuthToken = document.getElementById("claude-auth-token");
+  var cMapHaiku = document.getElementById("claude-map-haiku");
+  var cMapSonnet = document.getElementById("claude-map-sonnet");
+  var cMapOpus = document.getElementById("claude-map-opus");
+  var cApiTimeout = document.getElementById("claude-api-timeout");
+  var cThirdpartySection = document.getElementById("claude-thirdparty-section");
+  var cAuthStatus = document.getElementById("claude-auth-status");
+  var cLoginRow = document.getElementById("claude-login-row");
+  var cLoginBtn = document.getElementById("claude-login-btn");
+  var cSaveBtn = document.getElementById("claude-save-btn");
+  var cSaveStatus = document.getElementById("claude-save-status");
+
+  function toggleThirdparty() {
+    cThirdpartySection.style.display = cMode.value === "thirdparty" ? "" : "none";
+    cLoginRow.style.display = cMode.value === "official" ? "" : "none";
+  }
+  cMode.addEventListener("change", toggleThirdparty);
+
+  function loadClaude() {
+    api("claude", "GET").then(function(d) {
+      if (!d || !d.claude) return;
+      var c = d.claude;
+      cMode.value = c.mode || "official";
+      cModel.value = c.model || "sonnet";
+      if (c.baseUrl) cBaseUrl.value = c.baseUrl;
+      if (c.authToken) cAuthToken.value = c.authToken;
+      if (c.modelMap) {
+        if (c.modelMap.haiku) cMapHaiku.value = c.modelMap.haiku;
+        if (c.modelMap.sonnet) cMapSonnet.value = c.modelMap.sonnet;
+        if (c.modelMap.opus) cMapOpus.value = c.modelMap.opus;
+      }
+      if (c.apiTimeoutMs) cApiTimeout.value = c.apiTimeoutMs;
+      toggleThirdparty();
+
+      // Auth status
+      if (d.auth) {
+        if (d.auth.loggedIn) {
+          cAuthStatus.textContent = (d.auth.email ? tt("logged_in_as") + " " + d.auth.email : tt("logged_in"));
+          cAuthStatus.style.color = "var(--color-success)";
+          cLoginRow.style.display = "none";
+        } else {
+          cAuthStatus.textContent = tt("not_logged_in");
+          cAuthStatus.style.color = "var(--color-danger)";
+          if (cMode.value === "official") cLoginRow.style.display = "";
+        }
+      }
+    });
+  }
+
+  // Login flow
+  var loginPollTimer = null;
+  cLoginBtn.addEventListener("click", function() {
+    cLoginBtn.disabled = true;
+    cLoginBtn.textContent = tt("login_pending");
+    api("claude/login", "POST").then(function(d) {
+      if (d && d.url) {
+        window.open(d.url, "_blank");
+        // Poll auth status
+        loginPollTimer = setInterval(function() {
+          api("claude/auth-status", "GET").then(function(s) {
+            if (s && s.loggedIn) {
+              clearInterval(loginPollTimer);
+              loginPollTimer = null;
+              cLoginBtn.disabled = false;
+              cLoginBtn.textContent = tt("btn_login");
+              cAuthStatus.textContent = s.email ? tt("logged_in_as") + " " + s.email : tt("logged_in");
+              cAuthStatus.style.color = "var(--color-success)";
+              cLoginRow.style.display = "none";
+            }
+          });
+        }, 3000);
+        // Stop polling after 5 min
+        setTimeout(function() {
+          if (loginPollTimer) {
+            clearInterval(loginPollTimer);
+            loginPollTimer = null;
+            cLoginBtn.disabled = false;
+            cLoginBtn.textContent = tt("btn_login");
+          }
+        }, 300000);
+      } else {
+        cLoginBtn.disabled = false;
+        cLoginBtn.textContent = tt("btn_login");
+        showToast(tt("login_failed"));
+      }
+    });
+  });
+
+  // Save
+  cSaveBtn.addEventListener("click", function() {
+    var payload = {
+      mode: cMode.value,
+      model: cModel.value
+    };
+    if (cMode.value === "thirdparty") {
+      payload.base_url = cBaseUrl.value;
+      payload.auth_token = cAuthToken.value;
+      payload.model_map = {
+        haiku: cMapHaiku.value,
+        sonnet: cMapSonnet.value,
+        opus: cMapOpus.value
+      };
+      var t = parseInt(cApiTimeout.value, 10);
+      if (t > 0) payload.api_timeout_ms = t;
+    }
+    api("claude", "PATCH", payload).then(function(d) {
+      if (d && d.ok) {
+        cSaveStatus.textContent = tt("saved");
+        setTimeout(function() { cSaveStatus.textContent = ""; }, 2000);
+      } else {
+        showToast((d && d.error) || tt("failed"));
+      }
+    });
+  });
+
 
   // =====================================================
   // USERS TAB

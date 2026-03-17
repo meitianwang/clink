@@ -1,7 +1,6 @@
 /**
  * Write Claude Code native config files so the `claude` subprocess
- * picks up model, permissions, rules, and persona automatically
- * — no CLI arguments needed.
+ * picks up rules and persona automatically.
  *
  * Global configs   → ~/.claude/settings.json, ~/.claude/rules/
  * Per-workspace    → <workspace>/CLAUDE.md
@@ -13,60 +12,151 @@ import {
   writeFileSync,
   readFileSync,
   existsSync,
+  unlinkSync,
 } from "node:fs";
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawn as nodeSpawn } from "node:child_process";
+import type { ClaudeModelConfig } from "./types.js";
 
 const CLAUDE_DIR = join(homedir(), ".claude");
 const SETTINGS_FILE = join(CLAUDE_DIR, "settings.json");
 const RULES_DIR = join(CLAUDE_DIR, "rules");
 
 // ---------------------------------------------------------------------------
-// Global settings.json — model + permissions
+// Global settings.json — full overwrite based on ClaudeModelConfig
 // ---------------------------------------------------------------------------
 
-interface KlausGlobalSettings {
-  model?: string;
-  permissions?: {
-    defaultMode?: string;
-    allow?: string[];
-    deny?: string[];
+/**
+ * Delete and recreate ~/.claude/settings.json from scratch.
+ * Official mode:    { model, skipDangerousModePermissionPrompt }
+ * Third-party mode: { model, skipDangerousModePermissionPrompt, env: { ... } }
+ */
+export function writeClaudeSettings(cfg: ClaudeModelConfig): void {
+  mkdirSync(CLAUDE_DIR, { recursive: true });
+
+  // Delete old file first
+  try {
+    unlinkSync(SETTINGS_FILE);
+  } catch (e: unknown) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
+
+  const modelValue = `${cfg.model}[1m]`;
+  const settings: Record<string, unknown> = {
+    model: modelValue,
+    skipDangerousModePermissionPrompt: true,
   };
-  /** Environment variables to inject into settings.json (e.g. ANTHROPIC_BASE_URL). */
-  env?: Record<string, string>;
+
+  if (cfg.mode === "thirdparty") {
+    const env: Record<string, string> = {};
+    if (cfg.authToken) env.ANTHROPIC_AUTH_TOKEN = cfg.authToken;
+    if (cfg.baseUrl) env.ANTHROPIC_BASE_URL = cfg.baseUrl;
+    if (cfg.modelMap?.haiku)
+      env.ANTHROPIC_DEFAULT_HAIKU_MODEL = cfg.modelMap.haiku;
+    if (cfg.modelMap?.opus)
+      env.ANTHROPIC_DEFAULT_OPUS_MODEL = cfg.modelMap.opus;
+    if (cfg.modelMap?.sonnet)
+      env.ANTHROPIC_DEFAULT_SONNET_MODEL = cfg.modelMap.sonnet;
+    if (cfg.apiTimeoutMs)
+      env.API_TIMEOUT_MS = String(cfg.apiTimeoutMs);
+    env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
+    settings.env = env;
+  }
+
+  writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2) + "\n");
+  chmodSync(SETTINGS_FILE, 0o600);
+  console.log(
+    `[ClaudeSetup] settings.json written (mode=${cfg.mode}, model=${modelValue})`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Auth helpers — check login status, trigger login flow
+// ---------------------------------------------------------------------------
+
+interface ClaudeAuthStatus {
+  loggedIn: boolean;
+  email?: string;
 }
 
 /**
- * Merge Klaus-managed keys into ~/.claude/settings.json.
- * Preserves any user-added keys (theme, env, etc.).
+ * Check Claude CLI auth status by running `claude auth status`.
+ * Async to avoid blocking the event loop.
  */
-export function writeGlobalSettings(opts: KlausGlobalSettings): void {
-  mkdirSync(CLAUDE_DIR, { recursive: true });
+export function readClaudeAuthStatus(): Promise<ClaudeAuthStatus> {
+  return new Promise((resolve) => {
+    execFile(
+      getClaudeBin(),
+      ["auth", "status"],
+      { encoding: "utf-8", timeout: 10_000 },
+      (err, stdout, stderr) => {
+        if (err) {
+          resolve({ loggedIn: false });
+          return;
+        }
+        const output = stdout + stderr;
+        const emailMatch = output.match(/[Ll]ogged in as\s+(\S+@\S+)/);
+        if (emailMatch) {
+          resolve({ loggedIn: true, email: emailMatch[1] });
+          return;
+        }
+        if (!/not logged in|error/i.test(output)) {
+          resolve({ loggedIn: true });
+          return;
+        }
+        resolve({ loggedIn: false });
+      },
+    );
+  });
+}
 
-  let existing: Record<string, unknown> = {};
-  if (existsSync(SETTINGS_FILE)) {
-    try {
-      existing = JSON.parse(readFileSync(SETTINGS_FILE, "utf-8"));
-    } catch {
-      // corrupted — overwrite
-    }
-  }
+/**
+ * Spawn `claude auth login` and capture the OAuth URL from output.
+ * Returns a promise that resolves with the URL (or null if not found).
+ * The child process is killed after 5 minutes or when URL is found.
+ */
+export function startClaudeLogin(): Promise<{ url: string | null }> {
+  return new Promise((resolve) => {
+    const child = nodeSpawn(getClaudeBin(), ["auth", "login"], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, BROWSER: "echo" },
+    });
 
-  if (opts.model) {
-    existing.model = opts.model;
-  }
-  if (opts.permissions) {
-    existing.permissions = opts.permissions;
-  }
-  if (opts.env) {
-    const existingEnv = (existing.env as Record<string, string>) ?? {};
-    existing.env = { ...existingEnv, ...opts.env };
-  }
+    let resolved = false;
+    let output = "";
+    const MAX_BUF = 8192;
 
-  writeFileSync(SETTINGS_FILE, JSON.stringify(existing, null, 2) + "\n");
-  chmodSync(SETTINGS_FILE, 0o600);
-  console.log("[ClaudeSetup] Global settings.json updated");
+    const tryExtractUrl = (data: string) => {
+      output += data;
+      if (output.length > MAX_BUF) output = output.slice(-MAX_BUF);
+      const urlMatch = output.match(/https:\/\/\S+/);
+      if (urlMatch && !resolved) {
+        resolved = true;
+        child.kill();
+        resolve({ url: urlMatch[0] });
+      }
+    };
+
+    child.stdout.on("data", (chunk: Buffer) => tryExtractUrl(chunk.toString()));
+    child.stderr.on("data", (chunk: Buffer) => tryExtractUrl(chunk.toString()));
+
+    child.on("close", () => {
+      if (!resolved) {
+        resolved = true;
+        resolve({ url: null });
+      }
+    });
+
+    // Timeout after 5 minutes
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        child.kill();
+        resolve({ url: null });
+      }
+    }, 300_000);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -127,30 +217,10 @@ export function writeWorkspacePersona(
 }
 
 // ---------------------------------------------------------------------------
-// Convenience: initialize all global configs at Klaus startup
+// Resolve and cache the `claude` binary path at startup
 // ---------------------------------------------------------------------------
 
-export interface ClaudeSetupOptions {
-  model?: string;
-  permissions?: KlausGlobalSettings["permissions"];
-  env?: Record<string, string>;
-  rules?: readonly RuleFile[];
-}
-
-export function initGlobalClaudeConfig(opts: ClaudeSetupOptions): void {
-  writeGlobalSettings({
-    model: opts.model,
-    permissions: opts.permissions,
-    env: opts.env,
-  });
-
-  if (opts.rules && opts.rules.length > 0) {
-    writeGlobalRules(opts.rules);
-  }
-
-  // Resolve and cache the absolute path to the `claude` binary so
-  // child_process.spawn works reliably even when PATH differs
-  // (e.g. launchd/daemon mode).
+export function resolveAndCacheClaudeBin(): void {
   resolveClaudeBinary();
 }
 

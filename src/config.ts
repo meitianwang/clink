@@ -8,6 +8,7 @@ import type {
   TranscriptsConfig,
   TunnelConfig,
   GoogleOAuthConfig,
+  ClaudeModelConfig,
   CronConfig,
   CronTask,
   CronDelivery,
@@ -212,6 +213,41 @@ export function loadTranscriptsConfig(): TranscriptsConfig {
     maxFiles: Math.floor(positiveNumber(cfg.max_files, 200)),
     maxAgeDays: positiveNumber(cfg.max_age_days, 30),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Claude model config
+// ---------------------------------------------------------------------------
+
+export const VALID_MODEL_TIERS = new Set(["opus", "sonnet", "haiku"]);
+
+export function loadClaudeConfig(): ClaudeModelConfig {
+  const cfg = (loadConfig().claude as Record<string, unknown>) ?? {};
+  const mode = cfg.mode === "thirdparty" ? "thirdparty" : "official";
+  const model = VALID_MODEL_TIERS.has(String(cfg.model ?? ""))
+    ? String(cfg.model)
+    : "sonnet";
+
+  if (mode === "thirdparty") {
+    const map = (cfg.model_map as Record<string, unknown>) ?? {};
+    return {
+      mode,
+      model,
+      baseUrl: cfg.base_url ? String(cfg.base_url) : undefined,
+      authToken: cfg.auth_token ? String(cfg.auth_token) : undefined,
+      modelMap: {
+        haiku: map.haiku ? String(map.haiku) : undefined,
+        opus: map.opus ? String(map.opus) : undefined,
+        sonnet: map.sonnet ? String(map.sonnet) : undefined,
+      },
+      apiTimeoutMs:
+        cfg.api_timeout_ms != null
+          ? Math.floor(positiveNumber(cfg.api_timeout_ms, 3_000_000))
+          : undefined,
+    };
+  }
+
+  return { mode, model };
 }
 
 // ---------------------------------------------------------------------------
