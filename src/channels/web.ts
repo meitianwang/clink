@@ -1652,7 +1652,6 @@ async function handleAdminClaude(
     // Save to config.yaml
     const cfg = loadConfig();
     cfg.claude = claudeYaml;
-    delete cfg.oneproxy; // migrate away from old config
     saveConfig(cfg);
 
     // Regenerate settings.json
