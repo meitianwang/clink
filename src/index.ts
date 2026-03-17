@@ -72,6 +72,9 @@ async function start(): Promise<void> {
   const claudeEnv: Record<string, string> = {};
   if (oneproxy?.enabled && oneproxy.base_url) {
     claudeEnv.ANTHROPIC_BASE_URL = String(oneproxy.base_url);
+    // Claude CLI requires an API key to skip login, even with custom base URL.
+    // OneProxy handles auth internally, so a placeholder key suffices.
+    claudeEnv.ANTHROPIC_API_KEY = String(oneproxy.api_key || "sk-placeholder");
   }
 
   initGlobalClaudeConfig({
