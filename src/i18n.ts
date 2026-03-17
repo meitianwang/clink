@@ -622,10 +622,6 @@ export function setLang(lang: Lang): void {
   currentLang = lang;
 }
 
-export function getLang(): Lang {
-  return currentLang;
-}
-
 export function t(key: string, vars?: Record<string, string>): string {
   let text = TEXTS[key]?.[currentLang] ?? key;
   if (vars) {

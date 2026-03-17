@@ -41,14 +41,6 @@ export function validateLocalToken(token: string): boolean {
 }
 
 /**
- * Read the local token from disk (used by tests or external tools).
- */
-export function readLocalToken(): string | null {
-  if (!existsSync(TOKEN_FILE)) return null;
-  return readFileSync(TOKEN_FILE, "utf-8").trim();
-}
-
-/**
  * Generate and persist an exec approval token for the macOS app's Unix socket.
  */
 export function generateExecToken(): string {

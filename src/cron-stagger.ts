@@ -13,7 +13,7 @@ const DEFAULT_MAX_STAGGER_MS = 5 * 60 * 1000; // 5 minutes
  * Check if a cron expression is a recurring top-of-hour pattern.
  * Matches patterns like "0 * * * *", "0 *​/2 * * *" but NOT "0 7 * * *".
  */
-export function isRecurringTopOfHourExpr(expr: string): boolean {
+function isRecurringTopOfHourExpr(expr: string): boolean {
   const parts = expr.trim().split(/\s+/);
   // 5-field: min hour dom month dow
   // 6-field: sec min hour dom month dow
@@ -38,7 +38,7 @@ export function isRecurringTopOfHourExpr(expr: string): boolean {
  * Compute a deterministic stagger offset from a job ID.
  * Returns a value in [0, maxMs) that is stable for the same jobId.
  */
-export function computeStaggerMs(
+function computeStaggerMs(
   jobId: string,
   maxMs: number = DEFAULT_MAX_STAGGER_MS,
 ): number {

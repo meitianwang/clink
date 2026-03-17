@@ -67,10 +67,6 @@ export function getChannel(id: string): ChannelPlugin | undefined {
   return registry.get(id);
 }
 
-export function listChannels(): ChannelPlugin[] {
-  return [...registry.values()];
-}
-
 export function listChannelIds(): string[] {
   return [...registry.keys()];
 }

@@ -417,39 +417,3 @@ export function loadCronConfig(): CronConfig {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Registry config
-// ---------------------------------------------------------------------------
-
-export interface RegistryConfigEntry {
-  readonly id: string;
-  readonly url: string;
-  readonly enabled: boolean;
-  readonly authToken?: string;
-}
-
-const DEFAULT_REGISTRIES: readonly RegistryConfigEntry[] = [
-  { id: "picoclaw", url: "https://clawhub.ai", enabled: true },
-  { id: "openclaw", url: "https://clawhub.com", enabled: true },
-];
-
-export function loadRegistryConfigs(): readonly RegistryConfigEntry[] {
-  const cfg = loadConfig();
-  const raw = cfg.registries;
-  if (!Array.isArray(raw)) return DEFAULT_REGISTRIES;
-
-  const parsed = raw
-    .filter(
-      (r: unknown): r is Record<string, unknown> =>
-        typeof r === "object" && r !== null,
-    )
-    .map((r) => ({
-      id: String(r.id ?? ""),
-      url: String(r.url ?? ""),
-      enabled: r.enabled !== false,
-      authToken: r.auth_token ? String(r.auth_token) : undefined,
-    }))
-    .filter((r) => r.id && r.url);
-
-  return parsed.length > 0 ? parsed : DEFAULT_REGISTRIES;
-}

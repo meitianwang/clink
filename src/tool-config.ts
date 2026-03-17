@@ -144,7 +144,7 @@ const DEFAULT_CONFIG: ToolDisplayConfig = {
   },
 };
 
-export function getToolConfig(toolName: string): ToolDisplayConfig {
+function getToolConfig(toolName: string): ToolDisplayConfig {
   return TOOL_CONFIGS[toolName] ?? DEFAULT_CONFIG;
 }
 

@@ -15,7 +15,7 @@ const BLOCKED_WEBHOOK_HOSTS = new Set([
 ]);
 
 /** Validate URL format and block internal/private addresses (SSRF prevention). */
-export function validateWebhookUrl(url: string): void {
+function validateWebhookUrl(url: string): void {
   let parsed: URL;
   try {
     parsed = new URL(url);

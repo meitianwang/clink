@@ -21,7 +21,7 @@ import { CONFIG_DIR } from "./config.js";
 // Types
 // ---------------------------------------------------------------------------
 
-export interface PersistedSession {
+interface PersistedSession {
   readonly sessionId: string;
   readonly sessionKey: string;
   readonly createdAt: number;
@@ -36,8 +36,6 @@ export interface PersistedSession {
 const DEFAULT_IDLE_MS = 4 * 60 * 60 * 1000; // 4 hours
 const DEFAULT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const DEFAULT_MAX_ENTRIES = 100;
-
-export { DEFAULT_IDLE_MS, DEFAULT_MAX_AGE_MS, DEFAULT_MAX_ENTRIES };
 
 // ---------------------------------------------------------------------------
 // Schema

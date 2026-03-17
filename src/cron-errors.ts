@@ -5,7 +5,7 @@
  * Permanent errors should disable the task immediately.
  */
 
-export type CronErrorKind = "transient" | "permanent";
+type CronErrorKind = "transient" | "permanent";
 
 const TRANSIENT_PATTERNS = [
   "rate_limit",
@@ -62,8 +62,4 @@ export function classifyCronError(err: unknown): CronErrorKind {
 
   // Default: treat unknown errors as transient (safer — allows retry)
   return "transient";
-}
-
-export function isTransientError(err: unknown): boolean {
-  return classifyCronError(err) === "transient";
 }

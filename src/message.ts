@@ -6,9 +6,6 @@
  * into text prompts for Claude.
  */
 
-import { writeFileSync, mkdirSync } from "node:fs";
-import { join, basename } from "node:path";
-import { tmpdir } from "node:os";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -222,46 +219,3 @@ function formatMediaFile(file: MediaFile): string {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Shared file download utility
-// ---------------------------------------------------------------------------
-
-const TEMP_DIR = join(tmpdir(), "klaus-files");
-mkdirSync(TEMP_DIR, { recursive: true });
-
-const MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024; // 50 MB
-
-/**
- * Download a file from a URL to a temporary local path.
- * Returns the absolute path to the downloaded file.
- */
-export async function downloadFile(
-  rawUrl: string,
-  name?: string,
-): Promise<string> {
-  const url = rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`;
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-  const contentLength = Number(resp.headers.get("content-length") ?? 0);
-  if (contentLength > MAX_DOWNLOAD_SIZE) {
-    throw new Error(`File too large: ${contentLength} bytes`);
-  }
-
-  const buffer = Buffer.from(await resp.arrayBuffer());
-  if (buffer.byteLength > MAX_DOWNLOAD_SIZE) {
-    throw new Error(`File too large: ${buffer.byteLength} bytes`);
-  }
-
-  const fallbackExt = url.match(/\.([\w]+)(?:\?|$)/)?.[1] ?? "bin";
-  const safeName = name ? basename(name).replace(/[^\w.\-]/g, "_") : undefined;
-  const filename = safeName
-    ? `${Date.now()}-${safeName}`
-    : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${fallbackExt}`;
-  const filepath = join(TEMP_DIR, filename);
-  writeFileSync(filepath, buffer);
-  return filepath;
-}
-
-/** The shared temp directory for downloaded files. */
-export { TEMP_DIR, MAX_DOWNLOAD_SIZE };

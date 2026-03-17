@@ -27,20 +27,20 @@ import type { TranscriptsConfig } from "./types.js";
 // Types
 // ---------------------------------------------------------------------------
 
-export interface TranscriptSessionLine {
+interface TranscriptSessionLine {
   readonly type: "session";
   readonly sessionKey: string;
   readonly createdAt: number;
 }
 
-export interface TranscriptMessage {
+interface TranscriptMessage {
   readonly type: "message";
   readonly role: "user" | "assistant";
   readonly content: string;
   readonly ts: number;
 }
 
-export interface SessionSummary {
+interface SessionSummary {
   readonly sessionId: string;
   readonly title: string;
   readonly createdAt: number;

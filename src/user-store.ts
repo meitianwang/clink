@@ -56,7 +56,7 @@ export interface User {
   readonly isActive: boolean;
 }
 
-export interface AuthSession {
+interface AuthSession {
   readonly token: string;
   readonly userId: string;
   readonly createdAt: number;

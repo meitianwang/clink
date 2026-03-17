@@ -1,6 +1,6 @@
 {
   "name": "klaus-ai",
-  "version": "0.1.41",
+  "version": "0.1.42",
   "description": "Use Claude Code from a browser-based Web Chat UI",
   "type": "module",
   "bin": {
@@ -30,11 +30,9 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.63",
     "@clack/prompts": "^0.10.0",
     "better-sqlite3": "^12.6.2",
     "croner": "^10.0.1",
-    "fast-xml-parser": "^5.2.0",
     "js-yaml": "^4.1.0",
     "picocolors": "^1.1.0",
     "ws": "^8.19.0"

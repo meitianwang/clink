@@ -17,7 +17,7 @@ import { CONFIG_DIR } from "./config.js";
 // Types
 // ---------------------------------------------------------------------------
 
-export interface InviteCode {
+interface InviteCode {
   readonly code: string;
   readonly label: string;
   readonly createdAt: number;

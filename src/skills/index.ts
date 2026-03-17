@@ -24,7 +24,7 @@ import { loadConfig, CONFIG_DIR } from "../config.js";
 // Types
 // ---------------------------------------------------------------------------
 
-export interface KlausSkillMetadata {
+interface KlausSkillMetadata {
   readonly emoji?: string;
   readonly os?: readonly string[];
   readonly always?: boolean;
@@ -42,7 +42,7 @@ export interface KlausSkillMetadata {
   }[];
 }
 
-export interface SkillEntry {
+interface SkillEntry {
   readonly name: string;
   readonly description: string;
   readonly filePath: string;
@@ -50,7 +50,7 @@ export interface SkillEntry {
   readonly metadata?: KlausSkillMetadata;
 }
 
-export interface SkillConfig {
+interface SkillConfig {
   readonly enabled?: boolean;
   readonly env?: Record<string, string>;
 }
@@ -232,7 +232,7 @@ const USER_SKILLS_DIR = join(CONFIG_DIR, "skills");
 // ---------------------------------------------------------------------------
 
 /** Load all skill entries from bundled + user dirs, with user overriding bundled. */
-export function loadAllSkillEntries(): SkillEntry[] {
+function loadAllSkillEntries(): SkillEntry[] {
   const bundledDir = resolveBundledSkillsDir();
   const bundled = loadSkillsFromDir(bundledDir, "bundled");
   const user = loadSkillsFromDir(USER_SKILLS_DIR, "user");

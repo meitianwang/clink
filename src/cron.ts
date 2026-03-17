@@ -27,7 +27,7 @@ import { postWebhook } from "./cron-webhook.js";
 import { CronJobStore } from "./cron-store.js";
 
 /** Delivery function: send a message to a channel target. */
-export type DeliverFn = (to: string, text: string) => Promise<void>;
+type DeliverFn = (to: string, text: string) => Promise<void>;
 
 // Defaults
 

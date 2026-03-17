@@ -32,7 +32,7 @@ import { CONFIG_DIR } from "../config.js";
 const COOKIE_NAME = "klaus_session";
 const OAUTH_STATE_COOKIE = "klaus_oauth_state";
 
-export function parseCookies(
+function parseCookies(
   header: string | undefined,
 ): Record<string, string> {
   const cookies: Record<string, string> = {};

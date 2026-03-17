@@ -8,11 +8,13 @@ import {
 import {
   getChannelNames,
   CONFIG_FILE,
+  loadConfig,
   loadSessionConfig,
   loadTranscriptsConfig,
   loadCronConfig,
 } from "./config.js";
 import { ensureConfigValid } from "./config-validate.js";
+import { initGlobalClaudeConfig } from "./claude-setup.js";
 import { ChatSessionManager } from "./core.js";
 import { t } from "./i18n.js";
 import {
@@ -60,6 +62,38 @@ async function start(): Promise<void> {
   // Validate config before attempting to connect (fail-fast)
   ensureConfigValid();
 
+  // Write Claude Code native config files (settings.json, rules)
+  // before spawning any claude subprocess.
+  const cfg = loadConfig();
+  initGlobalClaudeConfig({
+    model: (cfg.model as string) || undefined,
+    permissions: {
+      allow: [
+        "Bash(*)",
+        "Read(*)",
+        "Write(*)",
+        "Edit(*)",
+        "Glob(*)",
+        "Grep(*)",
+        "WebFetch(*)",
+        "WebSearch(*)",
+        "Agent(*)",
+        "TodoWrite(*)",
+        "NotebookEdit(*)",
+      ],
+    },
+    rules: [
+      {
+        filename: "klaus-language.md",
+        content: "Always respond in the same language as the user's message. If the user writes in Chinese, respond in Chinese. If in English, respond in English.\n",
+      },
+      {
+        filename: "klaus-identity.md",
+        content: "When the user asks about your model, version, or what AI you are, answer: \"我是 Klaus 1.0\".\nWhen the user asks about your identity or who you are, answer as 吸血鬼始祖尼克劳斯 (Klaus Mikaelson, The Original Hybrid).\n",
+      },
+    ],
+  });
+
   // Generate local token for macOS app authentication
   generateLocalToken();
 
@@ -94,15 +128,13 @@ async function start(): Promise<void> {
   const messageStore = new MessageStore(loadTranscriptsConfig());
   messageStore.prune();
 
-  // Initialize per-user memory store
-  const { MemoryStore } = await import("./memory-store.js");
-  const memoryStore = new MemoryStore();
+  // Memory is handled natively by Claude Code's auto-memory system
+  // (writes to ~/.claude/projects/<project>/memory/)
 
   const sessions = new ChatSessionManager(
     store,
     sessionCfg.idleMs,
     messageStore,
-    memoryStore,
   );
 
   // Build delivery registry from active channel plugins (needed by cron)
@@ -151,45 +183,6 @@ async function start(): Promise<void> {
     await ensureCronScheduler();
   }
 
-  // Always inject cron MCP tool so Claude can create tasks via tool_use.
-  // Uses lazy scheduler init — first tool call starts the scheduler if needed.
-  {
-    const { createCronMcpServer } = await import("./cron-tool.js");
-    const cronMcp = createCronMcpServer({
-      get scheduler() {
-        return cronScheduler;
-      },
-      ensureScheduler: ensureCronScheduler,
-    });
-    const { createSendFileMcpServer } = await import("./send-file-tool.js");
-    const sendFileMcp = createSendFileMcpServer();
-
-    // Skill registry tool (lazy init — first tool call creates RegistryManager)
-    const { createSkillRegistryMcpServer } =
-      await import("./skill-registry-tool.js");
-    let registryManager:
-      | import("./skills/registry/registry-manager.js").RegistryManager
-      | null = null;
-    const skillRegistryMcp = createSkillRegistryMcpServer({
-      get manager() {
-        return registryManager;
-      },
-      async ensureManager() {
-        if (registryManager) return registryManager;
-        const { RegistryManager } =
-          await import("./skills/registry/registry-manager.js");
-        const { loadRegistryConfigs } = await import("./config.js");
-        registryManager = new RegistryManager(loadRegistryConfigs());
-        return registryManager;
-      },
-    });
-
-    sessions.setMcpServers({
-      "klaus-cron": cronMcp,
-      "klaus-send-file": sendFileMcp,
-      "klaus-skill-registry": skillRegistryMcp,
-    });
-  }
 
   // Expose stores to web channel for API endpoints
   let inviteStoreInstance: { close(): void } | null = null;

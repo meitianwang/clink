@@ -23,7 +23,7 @@ export type CronMarkerAction =
   | { readonly action: "enable"; readonly id: string }
   | { readonly action: "disable"; readonly id: string };
 
-export interface CronMarkerResult {
+interface CronMarkerResult {
   /** Reply text with all [[cron:...]] markers stripped. */
   readonly text: string;
   /** Parsed cron actions to execute. */

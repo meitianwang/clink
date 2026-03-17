@@ -202,12 +202,6 @@ export interface CronConfig {
   readonly storePath?: string;
 }
 
-export interface CronUsageSummary {
-  readonly inputTokens?: number;
-  readonly outputTokens?: number;
-  readonly totalTokens?: number;
-}
-
 // ---------------------------------------------------------------------------
 // Cron runtime types (used by CronScheduler + CLI)
 // ---------------------------------------------------------------------------
@@ -243,11 +237,3 @@ export interface CronSchedulerStatus {
   readonly nextWakeAt: string | null;
 }
 
-export interface KlausConfig {
-  channel: string;
-  persona?: string;
-  web?: WebConfig;
-  session?: SessionConfig;
-  transcripts?: TranscriptsConfig;
-  cron?: CronConfig;
-}

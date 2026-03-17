@@ -21,13 +21,13 @@ function resolveKnownChannels(): readonly string[] {
 // Types
 // ---------------------------------------------------------------------------
 
-export type ConfigIssue = {
+type ConfigIssue = {
   readonly path: string;
   readonly message: string;
   readonly hint?: string;
 };
 
-export type ValidationResult = {
+type ValidationResult = {
   readonly valid: boolean;
   readonly issues: ReadonlyArray<ConfigIssue>;
   readonly config: Record<string, unknown>;

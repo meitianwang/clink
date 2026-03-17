@@ -41,7 +41,7 @@ function sanitize(raw: string): string {
  * Web sessions strip the per-conversation suffix so all conversations
  * of the same user share one memory directory.
  */
-export function deriveMemoryKey(sessionKey: string): string {
+function deriveMemoryKey(sessionKey: string): string {
   if (sessionKey.startsWith("web:")) {
     const parts = sessionKey.split(":");
     if (parts.length >= 3) {
@@ -52,7 +52,7 @@ export function deriveMemoryKey(sessionKey: string): string {
 }
 
 /** Detect whether a session key represents a group/channel context. */
-export function isGroupSession(sessionKey: string): boolean {
+function isGroupSession(sessionKey: string): boolean {
   return sessionKey.startsWith("group:");
 }
 

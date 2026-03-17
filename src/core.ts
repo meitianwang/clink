@@ -1,42 +1,29 @@
 /**
- * Claude Code SDK wrapper for multi-turn conversations.
+ * Claude Code CLI subprocess wrapper for multi-turn conversations.
+ *
+ * Spawns `claude -p --output-format stream-json` for each chat turn,
+ * using `--resume` to maintain multi-turn context.
  *
  * ClaudeChat: single session with collect mode (message queuing when busy).
  * ChatSessionManager: per-session instances with LRU eviction.
  */
 
-import { query, type McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
+import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
 import { loadConfig } from "./config.js";
-import { getToolConfig } from "./tool-config.js";
 import { DEFAULT_PERSONA } from "./persona.js";
 import { ensureWorkspace, extractUserId } from "./workspace.js";
-import type { SessionStore, PersistedSession } from "./session-store.js";
+import { writeWorkspacePersona, writeGlobalSettings, getClaudeBin } from "./claude-setup.js";
+import type { SessionStore } from "./session-store.js";
 import type { MessageStore } from "./message-store.js";
-import { type MemoryStore, buildMemoryFlushPrompt } from "./memory-store.js";
-import { buildSkillsPrompt } from "./skills/index.js";
 import type {
   ToolEventCallback,
   StreamChunkCallback,
   PermissionRequestCallback,
-  PermissionRequest,
 } from "./types.js";
 
-/**
- * Memory flush interval: trigger a silent memory-save turn every N chat rounds.
- * Aligned with OpenClaw's pre-compaction flush concept, but using message count
- * as proxy since we don't have access to SDK token counts.
- */
-const MEMORY_FLUSH_INTERVAL = 20;
-
-// Read-only tools — auto-allow without permission prompt
-const READ_ONLY_TOOLS = new Set([
-  "Read",
-  "Glob",
-  "Grep",
-  "WebSearch",
-  "WebFetch",
-  "TodoWrite",
-]);
+// Max stderr buffer size to prevent unbounded memory growth
+const MAX_STDERR_BUF = 8192;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -71,14 +58,14 @@ function createDeferred<T>(): Deferred<T> {
 }
 
 // ---------------------------------------------------------------------------
-// ClaudeChat: wraps Claude Agent SDK for multi-turn chat with collect mode
+// ClaudeChat: wraps Claude CLI subprocess for multi-turn chat with collect mode
 // ---------------------------------------------------------------------------
 
 interface ChatOptions {
-  systemPrompt: string;
+  /** Per-session model override (from /model command). Global default is in settings.json. */
   model?: string;
+  /** Workspace directory — Claude reads CLAUDE.md, .mcp.json, etc. from here. */
   cwd?: string;
-  mcpServers?: Record<string, McpServerConfig>;
 }
 
 interface PendingMessage {
@@ -86,16 +73,14 @@ interface PendingMessage {
   deferred: Deferred<string | null>;
 }
 
-export class ClaudeChat {
+class ClaudeChat {
   private sessionId: string | undefined;
   private busy = false;
   private pending: PendingMessage[] = [];
   private options: ChatOptions;
   private model: string | undefined;
-  /** Number of completed chat rounds (for memory flush timing). */
-  private chatRoundCount = 0;
 
-  constructor(options: ChatOptions) {
+  constructor(options: ChatOptions = {}) {
     this.options = options;
     this.model = options.model;
   }
@@ -146,87 +131,112 @@ export class ClaudeChat {
     prompt: string,
     onToolEvent?: ToolEventCallback,
     onStreamChunk?: StreamChunkCallback,
-    onPermissionRequest?: PermissionRequestCallback,
+    // Kept in signature for interface compatibility with ChannelPlugin handler.
+    // Permissions are managed via ~/.claude/settings.json (admin-only).
+    _onPermissionRequest?: PermissionRequestCallback,
   ): Promise<string> {
+    // All config comes from native files:
+    //   model & permissions → ~/.claude/settings.json
+    //   persona            → <cwd>/CLAUDE.md
+    //   rules              → ~/.claude/rules/*.md
+    // Only --model is passed when the user explicitly overrides via /model.
+
+    const args = [
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+    ];
+
+    if (onStreamChunk) {
+      args.push("--include-partial-messages");
+    }
+
+    // Per-session model override (from /model command); default is in settings.json
+    if (this.model) {
+      args.push("--model", this.model);
+    }
+
+    // Resume previous session for multi-turn conversations
+    if (this.sessionId) {
+      args.push("--resume", this.sessionId);
+    }
+
+    // Pipe prompt via stdin to avoid ARG_MAX limit.
+
     let resultText: string | undefined;
     let lastSessionId: string | undefined;
+    let stderrBuf = "";
 
-    const conversation = query({
-      prompt,
-      options: {
-        systemPrompt: this.options.systemPrompt || undefined,
-        permissionMode: onPermissionRequest ? "default" : "bypassPermissions",
-        ...(this.options.cwd ? { cwd: this.options.cwd } : {}),
-        ...(onPermissionRequest
-          ? {
-              canUseTool: async (
-                toolName: string,
-                input: Record<string, unknown>,
-                opts: { toolUseID: string; decisionReason?: string },
-              ) => {
-                if (READ_ONLY_TOOLS.has(toolName)) {
-                  return { behavior: "allow" as const };
-                }
-                const config = getToolConfig(toolName);
-                const request: PermissionRequest = {
-                  requestId: opts.toolUseID,
-                  toolName,
-                  toolUseId: opts.toolUseID,
-                  input,
-                  description: opts.decisionReason,
-                  display: {
-                    icon: config.icon,
-                    label: config.label,
-                    style: config.style,
-                    value: config.getValue(input),
-                    ...(config.getSecondary
-                      ? { secondary: config.getSecondary(input) }
-                      : {}),
-                  },
-                };
-                const response = await onPermissionRequest(request);
-                return response.allow
-                  ? { behavior: "allow" as const }
-                  : {
-                      behavior: "deny" as const,
-                      message: "User denied the tool execution",
-                    };
-              },
-            }
-          : {}),
-        ...(this.model ? { model: this.model } : {}),
-        ...(this.sessionId ? { resume: this.sessionId } : {}),
-        ...(onStreamChunk ? { includePartialMessages: true } : {}),
-        ...(this.options.mcpServers
-          ? { mcpServers: this.options.mcpServers }
-          : {}),
-      },
+    const child = spawn(getClaudeBin(), args, {
+      cwd: this.options.cwd,
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
-    for await (const msg of conversation) {
-      if (msg.type === "result" && msg.subtype === "success") {
-        resultText = msg.result;
+    // Register close handler BEFORE starting readline to avoid race condition
+    const exitPromise = new Promise<number | null>((resolve) => {
+      child.on("close", resolve);
+    });
+
+    // Pipe prompt via stdin (avoids ARG_MAX limit)
+    child.stdin.end(prompt);
+
+    // Collect stderr for error reporting (capped to prevent unbounded growth)
+    child.stderr.on("data", (chunk: Buffer) => {
+      const str = chunk.toString();
+      stderrBuf += str;
+      if (stderrBuf.length > MAX_STDERR_BUF) {
+        stderrBuf = stderrBuf.slice(-MAX_STDERR_BUF);
       }
-      if ("session_id" in msg && typeof msg.session_id === "string") {
+    });
+
+    // Parse NDJSON from stdout line-by-line
+    const rl = createInterface({ input: child.stdout });
+
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      let msg: { type: string; [key: string]: unknown };
+      try {
+        const parsed = JSON.parse(line);
+        if (typeof parsed?.type !== "string") continue;
+        msg = parsed;
+      } catch {
+        continue;
+      }
+
+      // Extract session_id from any message that carries it
+      if (typeof msg.session_id === "string") {
         lastSessionId = msg.session_id;
       }
 
-      // Extract tool use events for Web channel visualization
+      // Final result
+      if (msg.type === "result" && msg.subtype === "success") {
+        resultText = msg.result as string;
+      }
+
+      // Tool use events for Web channel visualization
       if (onToolEvent) {
         this.emitToolEvents(msg, onToolEvent);
       }
 
-      // Extract streaming text deltas
+      // Streaming text deltas
       if (msg.type === "stream_event" && onStreamChunk) {
         this.emitStreamChunk(msg, onStreamChunk);
       }
+    }
+
+    // Wait for process to exit (handler registered before readline loop)
+    const exitCode = await exitPromise;
+
+    if (exitCode !== 0 && !resultText) {
+      const errMsg = stderrBuf.trim() || `claude process exited with code ${exitCode}`;
+      throw new Error(errMsg);
     }
 
     if (lastSessionId) {
       this.sessionId = lastSessionId;
     }
 
-    this.chatRoundCount++;
     return resultText || "(no response)";
   }
 
@@ -408,19 +418,8 @@ export class ClaudeChat {
     this.model = model;
   }
 
-  /** Update the system prompt (e.g. to refresh memory context). */
-  setSystemPrompt(prompt: string): void {
-    this.options = { ...this.options, systemPrompt: prompt };
-  }
-
-  /** Get the number of completed chat rounds. */
-  getRoundCount(): number {
-    return this.chatRoundCount;
-  }
-
   async reset(): Promise<void> {
     this.sessionId = undefined;
-    this.chatRoundCount = 0;
   }
 
   async close(): Promise<void> {
@@ -435,51 +434,53 @@ export class ClaudeChat {
 export class ChatSessionManager {
   static readonly MAX_SESSIONS = 20;
   private sessions = new Map<string, ClaudeChat>();
-  private options: ChatOptions;
   private store: SessionStore | undefined;
   private messageStore: MessageStore | undefined;
-  private memoryStore: MemoryStore | undefined;
   private idleMs: number;
+  /** Persona text written to each workspace's CLAUDE.md. */
+  private persona: string;
 
   constructor(
     store?: SessionStore,
     idleMs?: number,
     messageStore?: MessageStore,
-    memoryStore?: MemoryStore,
   ) {
     const cfg = loadConfig();
-    const persona = (cfg.persona as string) || DEFAULT_PERSONA;
-    const model = (cfg.model as string) || undefined;
-    this.options = { systemPrompt: persona, model };
+    this.persona = (cfg.persona as string) || DEFAULT_PERSONA;
     this.store = store;
     this.messageStore = messageStore;
-    this.memoryStore = memoryStore;
     this.idleMs = idleMs ?? 4 * 60 * 60 * 1000; // 4 hours default
   }
 
-  /** Update the default model for new and existing sessions. */
+  /**
+   * Update the default model (admin operation).
+   * Writes to ~/.claude/settings.json so Claude reads it natively.
+   */
   setDefaultModel(model: string | undefined): void {
-    this.options = { ...this.options, model };
-    for (const session of this.sessions.values()) {
-      if (model) {
-        session.setModel(model);
+    writeGlobalSettings({ model: model ?? undefined });
+  }
+
+  /** Get the current default model from config. */
+  getDefaultModel(): string | undefined {
+    const cfg = loadConfig();
+    return (cfg.model as string) || undefined;
+  }
+
+  /**
+   * Update the persona text (admin operation).
+   * Rewrites CLAUDE.md in all active user workspaces so running sessions
+   * pick up the new persona on their next turn.
+   */
+  setPersona(persona: string): void {
+    this.persona = persona;
+    // Rewrite CLAUDE.md in every active workspace
+    for (const sessionKey of this.sessions.keys()) {
+      const userId = extractUserId(sessionKey);
+      if (userId) {
+        const cwd = ensureWorkspace(userId);
+        writeWorkspacePersona(cwd, persona);
       }
     }
-  }
-
-  /** Get the current default model. */
-  getDefaultModel(): string | undefined {
-    return this.options.model;
-  }
-
-  /** Update the system prompt for new sessions (existing sessions keep their prompt until reset). */
-  setPersona(persona: string): void {
-    this.options = { ...this.options, systemPrompt: persona };
-  }
-
-  /** Inject MCP servers into all future sessions (called after CronScheduler init). */
-  setMcpServers(servers: Record<string, McpServerConfig>): void {
-    this.options = { ...this.options, mcpServers: servers };
   }
 
   private persistSession(key: string, session: ClaudeChat): void {
@@ -513,26 +514,6 @@ export class ChatSessionManager {
     }
   }
 
-  private buildSystemPrompt(sessionKey: string): string {
-    let prompt = this.options.systemPrompt;
-
-    // Append skills section
-    const skillsSection = buildSkillsPrompt();
-    if (skillsSection) {
-      prompt = `${prompt}\n\n${skillsSection}`;
-    }
-
-    // Append memory section
-    if (this.memoryStore) {
-      const memorySection = this.memoryStore.buildMemoryPrompt(sessionKey);
-      if (memorySection) {
-        prompt = `${prompt}\n\n${memorySection}`;
-      }
-    }
-
-    return prompt;
-  }
-
   private getSession(sessionKey: string): ClaudeChat {
     const existing = this.sessions.get(sessionKey);
     if (existing) {
@@ -542,16 +523,16 @@ export class ChatSessionManager {
       return existing;
     }
 
-    // Resolve per-user workspace directory (isolates file access)
+    // Resolve per-user workspace directory (isolates file access).
+    // Write CLAUDE.md with persona so Claude reads it as project instructions.
     const userId = extractUserId(sessionKey);
-    const cwd = userId ? ensureWorkspace(userId) : undefined;
+    let cwd: string | undefined;
+    if (userId) {
+      cwd = ensureWorkspace(userId);
+      writeWorkspacePersona(cwd, this.persona);
+    }
 
-    const sessionOptions: ChatOptions = {
-      ...this.options,
-      systemPrompt: this.buildSystemPrompt(sessionKey),
-      ...(cwd ? { cwd } : {}),
-    };
-    const chat = new ClaudeChat(sessionOptions);
+    const chat = new ClaudeChat(cwd ? { cwd } : {});
 
     // Restore sessionId from persistent store if fresh
     if (this.store) {
@@ -584,11 +565,6 @@ export class ChatSessionManager {
     await this.evictIfNeeded();
     const session = this.getSession(sessionKey);
 
-    // Refresh memory in system prompt before each chat
-    if (this.memoryStore) {
-      session.setSystemPrompt(this.buildSystemPrompt(sessionKey));
-    }
-
     const result = await session.chat(
       prompt,
       onToolEvent,
@@ -612,60 +588,9 @@ export class ChatSessionManager {
           )
           .catch((err) => console.error("[MessageStore] Append failed:", err));
       }
-
-      // Memory flush: schedule a silent turn AFTER returning, so the user
-      // gets their reply immediately. The flush runs when the session is idle.
-      if (this.shouldFlushMemory(session)) {
-        const sk = sessionKey;
-        setTimeout(() => {
-          this.runMemoryFlush(sk, session).catch((err) => {
-            console.error("[Memory] Flush failed:", err);
-          });
-        }, 500);
-      }
     }
 
     return result;
-  }
-
-  /** Check if memory flush should trigger (without side effects). */
-  private shouldFlushMemory(session: ClaudeChat): boolean {
-    if (!this.memoryStore) return false;
-    const rounds = session.getRoundCount();
-    return rounds > 0 && rounds % MEMORY_FLUSH_INTERVAL === 0;
-  }
-
-  /**
-   * Run a silent memory flush turn. Aligned with OpenClaw's pre-compaction
-   * flush: a hidden agent turn that saves durable memories to disk.
-   *
-   * Skips if the session is busy (user sent a new message before flush ran).
-   * The flush reply is discarded — the user never sees it.
-   */
-  private async runMemoryFlush(
-    sessionKey: string,
-    session: ClaudeChat,
-  ): Promise<void> {
-    // Skip if user already started a new conversation turn
-    if (session.isBusy) {
-      console.log(`[Memory] Flush skipped (session busy): ${sessionKey}`);
-      return;
-    }
-
-    console.log(
-      `[Memory] Triggering flush for ${sessionKey} (round ${session.getRoundCount()})`,
-    );
-    try {
-      session.setSystemPrompt(this.buildSystemPrompt(sessionKey));
-      const flushReply = await session.chat(buildMemoryFlushPrompt());
-      if (flushReply) {
-        console.log(
-          `[Memory] Flush complete for ${sessionKey}: ${flushReply.slice(0, 80)}`,
-        );
-      }
-    } catch (err) {
-      console.error(`[Memory] Flush error for ${sessionKey}:`, err);
-    }
   }
 
   /**
@@ -675,23 +600,16 @@ export class ChatSessionManager {
   async chatLight(sessionKey: string, prompt: string): Promise<string | null> {
     await this.evictIfNeeded();
 
-    // Create a session with minimal system prompt (no persona, skills, memory)
+    // Lightweight session: no per-user workspace (no persona CLAUDE.md).
+    // Global settings.json and rules still apply.
     const existing = this.sessions.get(sessionKey);
     if (existing) {
       // LRU update: move to end
       this.sessions.delete(sessionKey);
       this.sessions.set(sessionKey, existing);
     } else {
-      const userId = extractUserId(sessionKey);
-      const cwd = userId ? ensureWorkspace(userId) : undefined;
-      const chat = new ClaudeChat({
-        systemPrompt: "You are a helpful assistant. Be concise.",
-        model: this.options.model,
-        ...(cwd ? { cwd } : {}),
-        ...(this.options.mcpServers
-          ? { mcpServers: this.options.mcpServers }
-          : {}),
-      });
+      // No model override — Claude reads default from settings.json
+      const chat = new ClaudeChat();
 
       // Restore from store if available
       if (this.store) {

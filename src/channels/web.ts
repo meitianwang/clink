@@ -405,7 +405,7 @@ const pendingPermissions = new Map<
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
-export function readBody(
+function readBody(
   req: IncomingMessage,
   maxSize?: number,
 ): Promise<Buffer> {
