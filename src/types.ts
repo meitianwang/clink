@@ -7,33 +7,11 @@ export type ToolEventCallback = (event: ToolEvent) => void;
 /** Callback for streaming text chunks (optional, used by Web channel). */
 export type StreamChunkCallback = (chunk: string) => void;
 
-/** A permission request sent to the browser for user approval. */
-export interface PermissionRequest {
-  readonly requestId: string;
-  readonly toolName: string;
-  readonly toolUseId: string;
-  readonly input: Record<string, unknown>;
-  readonly description?: string;
-  readonly display: {
-    readonly icon: string;
-    readonly label: string;
-    readonly style: string;
-    readonly value: string;
-    readonly secondary?: string;
-  };
-}
-
-/** Callback for interactive tool permission approval (optional, used by Web channel). */
-export type PermissionRequestCallback = (
-  request: PermissionRequest,
-) => Promise<{ allow: boolean }>;
-
 /** Handler signature: receives a structured InboundMessage, returns reply text (null = merged, skip reply). */
 export type Handler = (
   msg: InboundMessage,
   onToolEvent?: ToolEventCallback,
   onStreamChunk?: StreamChunkCallback,
-  onPermissionRequest?: PermissionRequestCallback,
 ) => Promise<string | null>;
 
 // ---------------------------------------------------------------------------
@@ -91,7 +69,6 @@ export interface GoogleOAuthConfig {
 export interface WebConfig {
   readonly port: number;
   readonly tunnel: TunnelConfig | false;
-  readonly permissions: boolean;
   readonly sessionMaxAgeDays: number;
   readonly google?: GoogleOAuthConfig;
 }

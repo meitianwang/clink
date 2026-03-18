@@ -448,23 +448,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
   border-radius:20px;padding:5px 14px;
 }
 
-/* ─── Permission banner ─── */
-.perm-banner{
-  position:fixed;bottom:100px;left:50%;transform:translateX(-50%);
-  max-width:560px;width:calc(100% - 32px);background:var(--bg-elevated);
-  border:1px solid var(--border);border-radius:var(--radius-md);
-  padding:14px 18px;box-shadow:var(--shadow-lg);z-index:20;
-  animation:fade-in .3s ease-out;display:flex;align-items:center;gap:12px;
-}
-.perm-info{flex:1;min-width:0}
-.perm-title{font-size:13px;font-weight:600;margin-bottom:3px;display:flex;align-items:center;gap:6px}
-.perm-value{font-size:13px;font-family:var(--font-mono);color:var(--fg-tertiary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.perm-btn{border:none;padding:8px 16px;border-radius:var(--radius-sm);font-size:13px;font-weight:600;cursor:pointer;font-family:var(--font);transition:all var(--transition)}
-.perm-btn.approve{background:#22c55e;color:#fff}
-.perm-btn.approve:hover{background:#16a34a}
-.perm-btn.deny{background:#ef4444;color:#fff}
-.perm-btn.deny:hover{background:#dc2626}
-
 /* ─── Config notification ─── */
 .config-banner{
   position:fixed;top:70px;left:50%;transform:translateX(-50%);
@@ -752,8 +735,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       copy: "Copy",
       copied: "Copied!",
       copy_failed: "Failed",
-      approve: "Allow",
-      deny: "Deny",
       config_updated: "Config updated. Reload to apply changes.",
       file_too_large: "File too large (max 10 MB): ",
       upload_failed: "Upload failed: ",
@@ -811,8 +792,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       copy: "复制",
       copied: "已复制!",
       copy_failed: "失败",
-      approve: "允许",
-      deny: "拒绝",
       config_updated: "配置已更新，请刷新页面以应用更改。",
       file_too_large: "文件过大 (最大 10 MB): ",
       upload_failed: "上传失败: ",
@@ -1406,6 +1385,17 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       if (!msgs.firstChild && !sessionDom.has(currentSessionId)) {
         loadHistory(currentSessionId);
       }
+      // If we were streaming when WS dropped, the final message event was lost.
+      // Reload full history from server to recover.
+      if (isStreaming || busy) {
+        if (isStreaming) finalizeStreamingMessage("");
+        removeThinking(); clearToolContainer();
+        busy = false; updateBtn();
+        // Clear DOM and reload from server
+        while (msgs.firstChild) msgs.removeChild(msgs.firstChild);
+        historyLoaded.delete(currentSessionId);
+        loadHistory(currentSessionId);
+      }
     };
     ws.onclose = function() {
       ws = null;
@@ -1424,12 +1414,10 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
       if (data.type === "ping") return;
       if (data.type === "config_updated") { showConfigNotification(); return; }
       if (data.sessionId && data.sessionId !== currentSessionId) return;
-      if (data.type === "permission") { showPermissionBanner(data.data); return; }
       if (data.type === "tool") { handleToolEvent(data.data); return; }
       if (data.type === "file") { appendFileCard(data.name, data.url); return; }
       if (data.type === "stream") { handleStreamChunk(data.chunk); return; }
       if (!isStreaming) { removeThinking(); clearToolContainer(); }
-      removePermissionBanner();
       if (data.type === "message") {
         if (isStreaming) { finalizeStreamingMessage(data.text); }
         else { appendMsg("assistant", data.text); }
@@ -2001,41 +1989,6 @@ html,body{height:100dvh;width:100vw;font-family:var(--font);background:var(--bg)
     return parts.map(function(p,i) { return i%2===0 ? p.replace(/\\n/g,"<br>") : p; }).join("");
   }
 
-  function showPermissionBanner(req) {
-    removePermissionBanner();
-    var banner = document.createElement("div");
-    banner.className = "perm-banner";
-    banner.id = "perm-banner";
-    var iconHtml = toolIcons[req.display.icon] || toolIcons.tool;
-    var info = document.createElement("div");
-    info.className = "perm-info";
-    info.innerHTML = '<div class="perm-title">' + iconHtml + ' ' + escHtml(req.display.label) + '</div>'
-      + '<div class="perm-value">' + (req.display.style === "terminal" ? "$ " : "") + escHtml(req.display.value) + '</div>';
-    var approveBtn = document.createElement("button");
-    approveBtn.className = "perm-btn approve";
-    approveBtn.textContent = tt("approve");
-    approveBtn.onclick = function() { respondPermission(req.requestId, true); };
-    var denyBtn = document.createElement("button");
-    denyBtn.className = "perm-btn deny";
-    denyBtn.textContent = tt("deny");
-    denyBtn.onclick = function() { respondPermission(req.requestId, false); };
-    banner.appendChild(info);
-    banner.appendChild(denyBtn);
-    banner.appendChild(approveBtn);
-    document.body.appendChild(banner);
-  }
-
-  function removePermissionBanner() {
-    var el = document.getElementById("perm-banner");
-    if (el) el.remove();
-  }
-
-  function respondPermission(requestId, allow) {
-    removePermissionBanner();
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "permission", requestId: requestId, allow: allow }));
-    }
-  }
 
   function postProcessMsg(container) {
     container.querySelectorAll("pre code").forEach(function(block) {

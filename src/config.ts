@@ -184,9 +184,6 @@ export function loadWebConfig(): WebConfig {
   return {
     port: Number(cfg.port ?? process.env.KLAUS_WEB_PORT ?? 3000),
     tunnel: parseTunnelConfig(cfg.tunnel, process.env.KLAUS_WEB_TUNNEL),
-    permissions: Boolean(
-      cfg.permissions ?? process.env.KLAUS_WEB_PERMISSIONS === "true",
-    ),
     sessionMaxAgeDays: positiveNumber(cfg.session_max_age_days, 7),
     ...(google ? { google } : {}),
   };

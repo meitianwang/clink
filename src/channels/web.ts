@@ -44,8 +44,6 @@ import type {
   Handler,
   ToolEventCallback,
   StreamChunkCallback,
-  PermissionRequestCallback,
-  PermissionRequest,
 } from "../types.js";
 import type { WebConfig } from "../types.js";
 import {
@@ -302,11 +300,6 @@ type WsEvent =
       readonly data: ToolPayload;
       readonly sessionId?: string;
     }
-  | {
-      readonly type: "permission";
-      readonly data: PermissionRequest;
-      readonly sessionId?: string;
-    }
   | { readonly type: "config_updated" }
   | {
       readonly type: "file";
@@ -389,20 +382,6 @@ function checkRateLimit(ip: string): boolean {
   bucket.count += 1;
   return bucket.count <= RATE_MAX_REQUESTS;
 }
-
-// ---------------------------------------------------------------------------
-// Pending permission requests
-// ---------------------------------------------------------------------------
-
-const PERMISSION_TIMEOUT_MS = 120_000;
-
-const pendingPermissions = new Map<
-  string,
-  {
-    resolve: (response: { allow: boolean }) => void;
-    timer: ReturnType<typeof setTimeout>;
-  }
->();
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
@@ -643,34 +622,11 @@ async function processUserMessage(
     }
   };
 
-  // Permission request callback (only when permissions enabled)
-  const onPermissionRequest: PermissionRequestCallback | undefined =
-    cfg.permissions
-      ? (request) => {
-          return new Promise<{ allow: boolean }>((resolve) => {
-            const timer = setTimeout(() => {
-              pendingPermissions.delete(request.requestId);
-              console.log(
-                `[Web] Permission timeout for ${request.toolName} (${request.requestId})`,
-              );
-              resolve({ allow: false });
-            }, PERMISSION_TIMEOUT_MS);
-            pendingPermissions.set(request.requestId, { resolve, timer });
-            sendWsEvent(userId, {
-              type: "permission",
-              data: request,
-              sessionId,
-            });
-          });
-        }
-      : undefined;
-
   try {
     const reply = await handler(
       msg,
       onToolEvent,
       onStreamChunk,
-      onPermissionRequest,
     );
     if (reply === null) {
       console.log("[Web] Message merged into batch, skipping reply");
@@ -725,7 +681,6 @@ async function processUserMessage(
 
 type ClientWsMessage =
   | { type: "message"; text?: string; sessionId?: string; files?: string[] }
-  | { type: "permission"; requestId: string; allow: boolean }
   | {
       type: "rpc";
       id: string;
@@ -769,22 +724,6 @@ function handleWsMessage(
       ).catch((err) => {
         console.error("[Web] processUserMessage error:", err);
       });
-      break;
-    }
-    case "permission": {
-      if (!checkRateLimit(ip)) {
-        ws.send(
-          JSON.stringify({ type: "error", message: "too many requests" }),
-        );
-        return;
-      }
-      const requestId = parsed.requestId ?? "";
-      const pending = pendingPermissions.get(requestId);
-      if (pending) {
-        clearTimeout(pending.timer);
-        pendingPermissions.delete(requestId);
-        pending.resolve({ allow: Boolean(parsed.allow) });
-      }
       break;
     }
     case "pong":
@@ -1416,9 +1355,6 @@ function buildSettingsResponse(): Record<string, unknown> {
     persona: (cfg.persona as string) ?? "",
     // Web
     web: {
-      permissions: Boolean(
-        webCfg.permissions ?? process.env.KLAUS_WEB_PERMISSIONS === "true",
-      ),
       session_max_age_days: posNum(webCfg.session_max_age_days, 7),
     },
     // Session
@@ -1478,9 +1414,6 @@ async function handleAdminSettings(
       const webPatch = parsed.web as Record<string, unknown>;
       const webCfg = (cfg.web as Record<string, unknown>) ?? {};
 
-      if ("permissions" in webPatch) {
-        webCfg.permissions = Boolean(webPatch.permissions);
-      }
       if ("session_max_age_days" in webPatch) {
         const v = Number(webPatch.session_max_age_days);
         if (Number.isFinite(v) && v > 0) webCfg.session_max_age_days = v;

@@ -19,7 +19,6 @@ import type { MessageStore } from "./message-store.js";
 import type {
   ToolEventCallback,
   StreamChunkCallback,
-  PermissionRequestCallback,
 } from "./types.js";
 
 // Max stderr buffer size to prevent unbounded memory growth
@@ -106,14 +105,12 @@ class ClaudeChat {
     prompt: string,
     onToolEvent?: ToolEventCallback,
     onStreamChunk?: StreamChunkCallback,
-    onPermissionRequest?: PermissionRequestCallback,
   ): Promise<string> {
     try {
       const p = this.doChatInner(
         prompt,
         onToolEvent,
         onStreamChunk,
-        onPermissionRequest,
       );
       this.activeOp = p;
       return await p;
@@ -125,7 +122,6 @@ class ClaudeChat {
           prompt,
           onToolEvent,
           onStreamChunk,
-          onPermissionRequest,
         );
         this.activeOp = p;
         return await p;
@@ -140,9 +136,6 @@ class ClaudeChat {
     prompt: string,
     onToolEvent?: ToolEventCallback,
     onStreamChunk?: StreamChunkCallback,
-    // Kept in signature for interface compatibility with ChannelPlugin handler.
-    // Permissions are managed via ~/.claude/settings.json (admin-only).
-    _onPermissionRequest?: PermissionRequestCallback,
   ): Promise<string> {
     // All config comes from native files:
     //   persona → <cwd>/CLAUDE.md
@@ -370,7 +363,6 @@ class ClaudeChat {
     prompt: string,
     onToolEvent?: ToolEventCallback,
     onStreamChunk?: StreamChunkCallback,
-    onPermissionRequest?: PermissionRequestCallback,
   ): Promise<string | null> {
     if (this.busy) {
       const deferred = createDeferred<string | null>();
@@ -387,7 +379,6 @@ class ClaudeChat {
         prompt,
         onToolEvent,
         onStreamChunk,
-        onPermissionRequest,
       );
 
       // Drain queued messages (collect mode)
@@ -415,7 +406,6 @@ class ClaudeChat {
             merged,
             onToolEvent,
             onStreamChunk,
-            onPermissionRequest,
           );
           batch[batch.length - 1].deferred.resolve(reply);
         } catch (e) {
@@ -570,7 +560,6 @@ export class ChatSessionManager {
     prompt: string,
     onToolEvent?: ToolEventCallback,
     onStreamChunk?: StreamChunkCallback,
-    onPermissionRequest?: PermissionRequestCallback,
     /** User-facing display text for history (defaults to prompt if omitted). */
     displayText?: string,
   ): Promise<string | null> {
@@ -581,7 +570,6 @@ export class ChatSessionManager {
       prompt,
       onToolEvent,
       onStreamChunk,
-      onPermissionRequest,
     );
 
     // Persist after successful chat (fire-and-forget)

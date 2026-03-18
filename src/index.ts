@@ -35,7 +35,6 @@ import {
 import type {
   ToolEventCallback,
   StreamChunkCallback,
-  PermissionRequestCallback,
 } from "./types.js";
 import { parseCronMarkers, type CronMarkerAction } from "./cron-marker.js";
 import { generateLocalToken, generateExecToken } from "./local-token.js";
@@ -208,7 +207,6 @@ async function start(): Promise<void> {
     msg: InboundMessage,
     onToolEvent?: ToolEventCallback,
     onStreamChunk?: StreamChunkCallback,
-    onPermissionRequest?: PermissionRequestCallback,
   ): Promise<string | null> => {
     const trimmed = msg.text.trim();
 
@@ -264,7 +262,6 @@ async function start(): Promise<void> {
       prompt,
       onToolEvent,
       onStreamChunk,
-      onPermissionRequest,
       display,
     );
 
