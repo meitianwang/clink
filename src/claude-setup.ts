@@ -1,46 +1,31 @@
 /**
- * Write Claude Code native config files so the `claude` subprocess
- * picks up rules and persona automatically.
+ * Write Claude Code config to Klaus's own directory (~/.klaus/) so the
+ * `claude` subprocess picks up settings via `--settings` flag.
  *
- * Global configs   → ~/.claude/settings.json, ~/.claude/rules/
- * Per-workspace    → <workspace>/CLAUDE.md
+ * This avoids touching ~/.claude/ which belongs to the user's own Claude Code.
  */
 
 import {
   chmodSync,
   mkdirSync,
   writeFileSync,
-  readFileSync,
-  existsSync,
-  unlinkSync,
 } from "node:fs";
-import { join, basename } from "node:path";
-import { homedir } from "node:os";
+import { join } from "node:path";
 import { execFile, execFileSync, spawn as nodeSpawn } from "node:child_process";
+import { CONFIG_DIR } from "./config.js";
 import type { ClaudeModelConfig } from "./types.js";
 
-const CLAUDE_DIR = join(homedir(), ".claude");
-const SETTINGS_FILE = join(CLAUDE_DIR, "settings.json");
-const RULES_DIR = join(CLAUDE_DIR, "rules");
+const SETTINGS_FILE = join(CONFIG_DIR, "claude-settings.json");
 
 // ---------------------------------------------------------------------------
-// Global settings.json — full overwrite based on ClaudeModelConfig
+// Klaus settings — full overwrite based on ClaudeModelConfig
 // ---------------------------------------------------------------------------
 
 /**
- * Delete and recreate ~/.claude/settings.json from scratch.
- * Official mode:    { model, skipDangerousModePermissionPrompt }
- * Third-party mode: { model, skipDangerousModePermissionPrompt, env: { ... } }
+ * Write ~/.klaus/claude-settings.json from scratch.
  */
 export function writeClaudeSettings(cfg: ClaudeModelConfig): void {
-  mkdirSync(CLAUDE_DIR, { recursive: true });
-
-  // Delete old file first
-  try {
-    unlinkSync(SETTINGS_FILE);
-  } catch (e: unknown) {
-    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
-  }
+  mkdirSync(CONFIG_DIR, { recursive: true });
 
   const modelValue = cfg.model;
   const settings: Record<string, unknown> = {
@@ -67,8 +52,15 @@ export function writeClaudeSettings(cfg: ClaudeModelConfig): void {
   writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2) + "\n");
   chmodSync(SETTINGS_FILE, 0o600);
   console.log(
-    `[ClaudeSetup] settings.json written (mode=${cfg.mode}, model=${modelValue})`,
+    `[ClaudeSetup] claude-settings.json written (mode=${cfg.mode}, model=${modelValue})`,
   );
+}
+
+/**
+ * Return the path to Klaus's claude-settings.json (for --settings flag).
+ */
+export function getClaudeSettingsPath(): string {
+  return SETTINGS_FILE;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,63 +147,6 @@ export function startClaudeLogin(): Promise<{ url: string | null }> {
       }
     }, 300_000);
   });
-}
-
-// ---------------------------------------------------------------------------
-// Global rules — ~/.claude/rules/*.md
-// ---------------------------------------------------------------------------
-
-interface RuleFile {
-  filename: string;
-  content: string;
-}
-
-/**
- * Write rule files to ~/.claude/rules/.
- * Each rule is a separate .md file.
- */
-export function writeGlobalRules(rules: readonly RuleFile[]): void {
-  mkdirSync(RULES_DIR, { recursive: true });
-  for (const rule of rules) {
-    // Prevent path traversal: filename must be a bare name, no slashes
-    const safe = basename(rule.filename);
-    if (safe !== rule.filename || rule.filename.includes("\\")) {
-      throw new Error(`Invalid rule filename: ${rule.filename}`);
-    }
-    const filepath = join(RULES_DIR, safe);
-    writeFileSync(filepath, rule.content);
-    chmodSync(filepath, 0o600);
-  }
-  console.log(
-    `[ClaudeSetup] Wrote ${rules.length} global rule(s) to ${RULES_DIR}`,
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Per-workspace CLAUDE.md — persona system prompt
-// ---------------------------------------------------------------------------
-
-/**
- * Write CLAUDE.md in the workspace directory with the persona.
- * Only writes if the file doesn't exist or content has changed.
- */
-export function writeWorkspacePersona(
-  workspaceDir: string,
-  persona: string,
-): void {
-  const claudeMdPath = join(workspaceDir, "CLAUDE.md");
-  const content = persona.trim() + "\n";
-
-  // Skip if unchanged
-  if (existsSync(claudeMdPath)) {
-    try {
-      if (readFileSync(claudeMdPath, "utf-8") === content) return;
-    } catch {
-      // unreadable — overwrite
-    }
-  }
-
-  writeFileSync(claudeMdPath, content);
 }
 
 // ---------------------------------------------------------------------------

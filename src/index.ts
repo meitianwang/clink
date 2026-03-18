@@ -17,7 +17,6 @@ import {
 import { ensureConfigValid } from "./config-validate.js";
 import {
   writeClaudeSettings,
-  writeGlobalRules,
   resolveAndCacheClaudeBin,
 } from "./claude-setup.js";
 import { ChatSessionManager } from "./core.js";
@@ -60,19 +59,9 @@ async function start(): Promise<void> {
   // before spawning any claude subprocess.
   const cfg = loadConfig();
 
-  // Generate ~/.claude/settings.json based on claude model config
+  // Generate ~/.klaus/claude-settings.json based on claude model config
   writeClaudeSettings(loadClaudeConfig());
 
-  writeGlobalRules([
-    {
-      filename: "klaus-language.md",
-      content: "Always respond in the same language as the user's message. If the user writes in Chinese, respond in Chinese. If in English, respond in English.\n",
-    },
-    {
-      filename: "klaus-identity.md",
-      content: "When the user asks about your model, version, or what AI you are, answer: \"我是 Klaus 1.0\".\nWhen the user asks about your identity or who you are, answer as 吸血鬼始祖尼克劳斯 (Klaus Mikaelson, The Original Hybrid).\n",
-    },
-  ]);
   resolveAndCacheClaudeBin();
 
   // Generate local token for macOS app authentication

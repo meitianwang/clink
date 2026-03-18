@@ -13,7 +13,8 @@ import { createInterface } from "node:readline";
 import { loadConfig } from "./config.js";
 import { DEFAULT_PERSONA } from "./persona.js";
 import { ensureWorkspace, extractUserId } from "./workspace.js";
-import { writeWorkspacePersona, getClaudeBin } from "./claude-setup.js";
+import { getClaudeBin, getClaudeSettingsPath } from "./claude-setup.js";
+import { KLAUS_RULES } from "./rules.js";
 import type { SessionStore } from "./session-store.js";
 import type { MessageStore } from "./message-store.js";
 import type {
@@ -64,8 +65,10 @@ function createDeferred<T>(): Deferred<T> {
 // ---------------------------------------------------------------------------
 
 interface ChatOptions {
-  /** Workspace directory — Claude reads CLAUDE.md, .mcp.json, etc. from here. */
+  /** Workspace directory — Claude reads .mcp.json, etc. from here. */
   cwd?: string;
+  /** System prompt appended via --append-system-prompt (persona + rules). */
+  systemPrompt?: string;
 }
 
 interface PendingMessage {
@@ -85,6 +88,11 @@ class ClaudeChat {
 
   constructor(options: ChatOptions = {}) {
     this.options = options;
+  }
+
+  /** Update the system prompt for subsequent spawns. */
+  setSystemPrompt(prompt: string): void {
+    this.options.systemPrompt = prompt;
   }
 
   /** Get the current Claude SDK session ID (for persistence). */
@@ -137,9 +145,8 @@ class ClaudeChat {
     onToolEvent?: ToolEventCallback,
     onStreamChunk?: StreamChunkCallback,
   ): Promise<string> {
-    // All config comes from native files:
-    //   persona → <cwd>/CLAUDE.md
-    //   rules   → ~/.claude/rules/*.md
+    // All config comes from --settings and --append-system-prompt flags,
+    // so we don't touch ~/.claude/ or write CLAUDE.md.
 
     const args = [
       "-p",
@@ -148,7 +155,15 @@ class ClaudeChat {
       "--verbose",
       "--permission-mode",
       "bypassPermissions",
+      "--setting-sources",
+      "",
+      "--settings",
+      getClaudeSettingsPath(),
     ];
+
+    if (this.options.systemPrompt) {
+      args.push("--append-system-prompt", this.options.systemPrompt);
+    }
 
     if (onStreamChunk) {
       args.push("--include-partial-messages");
@@ -459,8 +474,10 @@ export class ChatSessionManager {
   private sessions = new Map<string, ClaudeChat>();
   private store: SessionStore | undefined;
   private messageStore: MessageStore | undefined;
-  /** Persona text written to each workspace's CLAUDE.md. */
+  /** Persona text for system prompt. */
   private persona: string;
+  /** Cached system prompt (persona + rules), rebuilt on setPersona(). */
+  private cachedSystemPrompt: string;
 
   constructor(
     store?: SessionStore,
@@ -468,24 +485,24 @@ export class ChatSessionManager {
   ) {
     const cfg = loadConfig();
     this.persona = (cfg.persona as string) || DEFAULT_PERSONA;
+    this.cachedSystemPrompt = this.buildSystemPrompt(this.persona);
     this.store = store;
     this.messageStore = messageStore;
   }
 
+  private buildSystemPrompt(persona: string): string {
+    return persona + "\n\n" + KLAUS_RULES;
+  }
+
   /**
    * Update the persona text (admin operation).
-   * Rewrites CLAUDE.md in all active user workspaces so running sessions
-   * pick up the new persona on their next turn.
+   * Updates all active sessions so they pick up the new persona on their next turn.
    */
   setPersona(persona: string): void {
     this.persona = persona;
-    // Rewrite CLAUDE.md in every active workspace
-    for (const sessionKey of this.sessions.keys()) {
-      const userId = extractUserId(sessionKey);
-      if (userId) {
-        const cwd = ensureWorkspace(userId);
-        writeWorkspacePersona(cwd, persona);
-      }
+    this.cachedSystemPrompt = this.buildSystemPrompt(persona);
+    for (const session of this.sessions.values()) {
+      session.setSystemPrompt(this.cachedSystemPrompt);
     }
   }
 
@@ -529,15 +546,14 @@ export class ChatSessionManager {
     }
 
     // Resolve per-user workspace directory (isolates file access).
-    // Write CLAUDE.md with persona so Claude reads it as project instructions.
     const userId = extractUserId(sessionKey);
     let cwd: string | undefined;
     if (userId) {
       cwd = ensureWorkspace(userId);
-      writeWorkspacePersona(cwd, this.persona);
     }
 
-    const chat = new ClaudeChat(cwd ? { cwd } : {});
+    // Build system prompt: persona + rules, passed via --append-system-prompt
+    const chat = new ClaudeChat(cwd ? { cwd, systemPrompt: this.cachedSystemPrompt } : { systemPrompt: this.cachedSystemPrompt });
 
     // Restore sessionId from persistent store
     if (this.store) {
@@ -600,8 +616,8 @@ export class ChatSessionManager {
   async chatLight(sessionKey: string, prompt: string): Promise<string | null> {
     await this.evictIfNeeded();
 
-    // Lightweight session: no per-user workspace (no persona CLAUDE.md).
-    // Global settings.json and rules still apply.
+    // Lightweight session: no per-user workspace, no persona.
+    // Settings still apply via --settings flag.
     const existing = this.sessions.get(sessionKey);
     if (existing) {
       // LRU update: move to end
